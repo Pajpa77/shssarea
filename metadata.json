@@ -1,0 +1,6 @@
+{
+  "name": "Vermisstensuche & Einsatzleitung",
+  "description": "Taktisches Einsatzleitsystem für Vermisstensuchen mit GPS-Echtzeit-Tracking, Suchsektoren, Drohnen/Hunde-Einsatz, Fundmeldungen und Einsatzarchiv.",
+  "requestFramePermissions": ["geolocation", "camera", "microphone"],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
