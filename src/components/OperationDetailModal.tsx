@@ -84,7 +84,7 @@ export const OperationDetailModal: React.FC<OperationDetailModalProps> = ({
   }
 
   const mp = op.missingPerson;
-  const isAdmin = currentUser?.role === 'admin';
+  const isAdmin = currentUser?.role === 'admin' || currentUser?.role === 'einsatzleitung' || Boolean(currentUser?.isAdmin) || Boolean(currentUser?.canLeadOperations);
   const isExercise = op.type === 'exercise';
   const opFindings = findings.filter((f) => f.operationId === op.id);
   const activeRespondersCount = allUsers.filter((u) => u.isActive).length;

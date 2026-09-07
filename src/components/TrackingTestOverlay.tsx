@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { Timer, Camera, Save, Trash2, LogOut, CheckCircle2 } from 'lucide-react';
 import { useRescue } from '../context/RescueContext';
-import html2canvas from 'html2canvas';
+import { captureTacticalMapScreenshot } from '../lib/mapSnapshotHelper';
 
 export const TrackingTestOverlay: React.FC = () => {
   const { activeTrackingTest, saveTrackingTestResult } = useRescue();
@@ -37,14 +37,40 @@ export const TrackingTestOverlay: React.FC = () => {
     await new Promise(resolve => setTimeout(resolve, 1000));
     
     try {
-      const mapElement = document.querySelector('.leaflet-container') as HTMLElement;
-      if (mapElement) {
-        const canvas = await html2canvas(mapElement, {
-          useCORS: true,
-          allowTaint: true,
-          backgroundColor: '#0f172a',
-        });
-        const dataUrl = canvas.toDataURL('image/jpeg', 0.85);
+      // Create a dummy operation for the fallback renderer if DOM capture fails
+      const dummyOp = {
+        id: 'tracking-test',
+        title: 'Tracking Test',
+        status: 'active',
+        type: 'operation',
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+        commander: 'System',
+        participants: [],
+        participantIds: [],
+        sectors: [],
+        findings: [],
+        logs: [],
+        missingPerson: {
+          name: 'N/A',
+          age: 0,
+          description: '',
+          lastSeen: ''
+        },
+        archivedTracks: [{
+          id: 'test-track',
+          userId: activeTrackingTest.userId,
+          userName: 'Tester',
+          callSign: 'Test',
+          color: '#38bdf8',
+          phaseLabel: 'Test',
+          recordedAt: new Date().toISOString(),
+          points: activeTrackingTest.trackPoints
+        }]
+      } as any;
+      
+      const dataUrl = await captureTacticalMapScreenshot(dummyOp as import('../types').SearchOperation);
+      if (dataUrl) {
         setSnapshotUrl(dataUrl);
       }
     } catch (err) {

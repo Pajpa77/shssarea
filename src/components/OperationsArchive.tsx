@@ -448,10 +448,10 @@ export const OperationsArchive: React.FC<OperationsArchiveProps> = ({ onNavigate
                         onClick={(e) => {
                           e.stopPropagation();
                           setSelectedOpId(op.id);
-                          setActiveSubTab('protocol');
+                          setActiveSubTab('report');
                         }}
                         className="text-blue-400 hover:text-blue-300 font-bold flex items-center gap-0.5 hover:underline cursor-pointer bg-blue-950/50 px-2 py-0.5 rounded border border-blue-800/60 text-[10px]"
-                        title="Einsatztagebuch / Protokoll öffnen"
+                        title="Gesamtprotokoll öffnen"
                       >
                         Protokoll <ChevronRight className="w-3 h-3" />
                       </button>
@@ -549,7 +549,7 @@ export const OperationsArchive: React.FC<OperationsArchiveProps> = ({ onNavigate
                       activeSubTab === 'report' ? 'bg-blue-600 text-white' : 'text-slate-400 hover:text-slate-200'
                     }`}
                   >
-                    Einsatzbericht
+                    Gesamtprotokoll
                   </button>
                   <button
                     onClick={() => setActiveSubTab('protocol')}
@@ -557,7 +557,7 @@ export const OperationsArchive: React.FC<OperationsArchiveProps> = ({ onNavigate
                       activeSubTab === 'protocol' ? 'bg-blue-600 text-white' : 'text-slate-400 hover:text-slate-200'
                     }`}
                   >
-                    <span>Protokoll</span>
+                    <span>Tagebuch</span>
                     <span className="text-[10px] px-1.5 py-0.2 rounded bg-black/40 font-mono">
                       {selectedOp.logs?.length || 0}
                     </span>
@@ -826,6 +826,102 @@ export const OperationsArchive: React.FC<OperationsArchiveProps> = ({ onNavigate
                   </div>
                 </div>
 
+                {/* Teilnehmerliste / Roster */}
+                <div className="space-y-2">
+                  <span className="text-xs font-bold text-slate-300 uppercase tracking-wider block font-mono">
+                    Eingesetzte Kräfte & Teilnehmer:
+                  </span>
+                  <div className="border border-slate-700 rounded-xl overflow-hidden bg-slate-900">
+                    <table className="w-full text-left text-xs font-mono">
+                      <thead className="bg-slate-950 text-slate-400 text-[10px] uppercase font-bold border-b border-slate-700">
+                        <tr>
+                          <th className="p-2.5">Name (Funkrufname)</th>
+                          <th className="p-2.5">Rolle</th>
+                          <th className="p-2.5">Gruppe</th>
+                          <th className="p-2.5">Zugewiesene Sektoren</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-700/60">
+                        {participants.map((u) => {
+                          const userSectors = selectedOp.sectors?.filter(s => s.assignedUserIds?.includes(u.id)).map(s => s.name).join(', ') || '-';
+                          return (
+                            <tr key={u.id} className="hover:bg-slate-800/50">
+                              <td className="p-2.5 font-bold text-white font-sans">{u.name} ({u.callSign})</td>
+                              <td className="p-2.5 text-slate-400 font-sans capitalize">{u.role === 'einsatzleitung' || u.role === 'admin' ? 'Einsatzleitung' : 'Suchkraft'}</td>
+                              <td className="p-2.5 text-slate-400 font-sans capitalize">{u.groupId || '-'}</td>
+                              <td className="p-2.5 text-slate-400 font-sans">{userSectors}</td>
+                            </tr>
+                          );
+                        })}
+                        {participants.length === 0 && (
+                          <tr><td colSpan={4} className="p-2.5 text-slate-500 italic text-center">Keine digitalen Teilnehmer erfasst.</td></tr>
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+
+                {/* Funde */}
+                <div className="space-y-2">
+                  <span className="text-xs font-bold text-slate-300 uppercase tracking-wider block font-mono">
+                    Funde und Erkenntnisse:
+                  </span>
+                  {selectedOp.findings && selectedOp.findings.length > 0 ? (
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                      {selectedOp.findings.map(f => (
+                        <div key={f.id} className="bg-slate-900 p-3 rounded-xl border border-slate-700">
+                          <div className="flex justify-between items-start mb-2">
+                            <span className="font-bold text-amber-400 font-sans">{f.title}</span>
+                            <span className="text-[10px] text-slate-500 font-mono">{new Date(f.timestamp).toLocaleTimeString()}</span>
+                          </div>
+                          <p className="text-xs text-slate-300 mb-2 font-sans">{f.description || 'Keine Details'}</p>
+                          <div className="text-[10px] text-slate-400 font-mono bg-slate-950 p-1.5 rounded inline-block">
+                            Verbleib: {f.status === 'verified' ? '✅ Gesichert' : f.status === 'pending' ? '🔍 In Untersuchung' : 'Gemeldet'}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <div className="bg-slate-900 p-3 rounded-xl border border-slate-700 text-slate-500 italic text-center text-xs">
+                      Keine Funde dokumentiert.
+                    </div>
+                  )}
+                </div>
+
+                {/* Chatverlauf */}
+                <div className="space-y-2">
+                  <span className="text-xs font-bold text-slate-300 uppercase tracking-wider block font-mono">
+                    Funk- und Chatprotokoll:
+                  </span>
+                  <div className="bg-slate-900 rounded-xl border border-slate-700 overflow-hidden max-h-96 overflow-y-auto">
+                    {selectedOp.archivedChatMessages && selectedOp.archivedChatMessages.length > 0 ? (
+                      <div className="divide-y divide-slate-700/50">
+                        {selectedOp.archivedChatMessages.map(msg => {
+                          const sender = allUsers.find(u => u.id === msg.senderId);
+                          return (
+                            <div key={msg.id} className="p-3 hover:bg-slate-800/30">
+                              <div className="flex items-center gap-2 mb-1">
+                                <span className="text-[10px] text-slate-500 font-mono">{new Date(msg.timestamp).toLocaleString()}</span>
+                                <span className={`text-[11px] font-bold ${msg.isAlert ? 'text-red-400' : 'text-blue-400'}`}>
+                                  {sender ? `${sender.name} (${sender.callSign})` : 'System'}
+                                </span>
+                                <span className="text-[10px] px-1.5 py-0.5 rounded bg-slate-800 text-slate-400 border border-slate-700 uppercase">
+                                  {msg.channel}
+                                </span>
+                              </div>
+                              <p className={`text-xs ${msg.isAlert ? 'text-red-300 font-bold' : 'text-slate-300'}`}>{msg.text}</p>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    ) : (
+                      <div className="p-4 text-slate-500 italic text-center text-xs">
+                        Kein Chatverlauf archiviert.
+                      </div>
+                    )}
+                  </div>
+                </div>
+
                 {/* Quick Protocol Banner in Report */}
                 <div className="bg-slate-900 p-4 rounded-xl border border-slate-700 flex items-center justify-between font-mono">
                   <div>
@@ -841,7 +937,7 @@ export const OperationsArchive: React.FC<OperationsArchiveProps> = ({ onNavigate
                     onClick={() => setActiveSubTab('protocol')}
                     className="px-3 py-1.5 bg-blue-600 hover:bg-blue-500 text-white rounded-xl text-xs font-bold transition flex items-center gap-1.5 cursor-pointer uppercase tracking-wider"
                   >
-                    <span>Protokoll öffnen</span>
+                    <span>Tagebuch öffnen</span>
                     <ArrowRight className="w-3.5 h-3.5" />
                   </button>
                 </div>
@@ -1930,11 +2026,54 @@ export const OperationsArchive: React.FC<OperationsArchiveProps> = ({ onNavigate
             </table>
           </div>
 
+          {/* Chatverlauf */}
+          <div className="border border-black text-xs print-page-break">
+            <div className="bg-gray-100 font-bold px-3 py-1.5 border-b border-black uppercase text-[11px] flex justify-between">
+              <span>7. Funk- und Chatprotokoll</span>
+              <span>{selectedOp.archivedChatMessages?.length || 0} Meldungen</span>
+            </div>
+            {selectedOp.archivedChatMessages && selectedOp.archivedChatMessages.length > 0 ? (
+              <table className="w-full text-left text-xs border-collapse">
+                <thead>
+                  <tr className="border-b border-black bg-gray-50">
+                    <th className="p-2 border-r border-black w-24">Uhrzeit</th>
+                    <th className="p-2 border-r border-black w-36">Absender (Funkrufname)</th>
+                    <th className="p-2 border-r border-black w-28">Kanal</th>
+                    <th className="p-2">Nachricht</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {selectedOp.archivedChatMessages.map((msg, idx) => {
+                    const sender = allUsers.find(u => u.id === msg.senderId);
+                    return (
+                      <tr key={msg.id} className={idx % 2 === 0 ? 'bg-white' : 'bg-gray-50'}>
+                        <td className="p-2 border-r border-black font-mono whitespace-nowrap">
+                          {new Date(msg.timestamp).toLocaleTimeString('de-DE')}
+                        </td>
+                        <td className="p-2 border-r border-black whitespace-nowrap font-bold">
+                          {sender ? `${sender.name} (${sender.callSign})` : 'System'}
+                        </td>
+                        <td className="p-2 border-r border-black uppercase text-[10px] font-bold">
+                          {msg.channel}
+                        </td>
+                        <td className={`p-2 leading-relaxed ${msg.isAlert ? 'text-red-600 font-bold' : ''}`}>
+                          {msg.text}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            ) : (
+              <div className="p-3 text-gray-500 italic">Kein Chatverlauf dokumentiert.</div>
+            )}
+          </div>
+
           {/* Kartensnapshot */}
           {selectedOp.mapSnapshot && (
             <div className="border border-black text-xs print-no-break">
               <div className="bg-gray-100 font-bold px-3 py-1.5 border-b border-black uppercase text-[11px]">
-                7. Lagekarten-Übersicht (Abschluss-Snapshot)
+                8. Lagekarten-Übersicht (Abschluss-Snapshot)
               </div>
               <div className="p-3 flex justify-center">
                 <img
@@ -1949,7 +2088,7 @@ export const OperationsArchive: React.FC<OperationsArchiveProps> = ({ onNavigate
           {/* Abschlussvermerk */}
           <div className="border border-black text-xs print-no-break">
             <div className="bg-gray-100 font-bold px-3 py-1.5 border-b border-black uppercase text-[11px]">
-              8. Abschlussvermerk der Einsatzleitung
+              9. Abschlussvermerk der Einsatzleitung
             </div>
             <div className="p-3 leading-relaxed whitespace-pre-wrap">
               {selectedOp.notes || 'Der Einsatz wurde ordnungsgemäß durchgeführt und abgeschlossen.'}
@@ -1959,7 +2098,7 @@ export const OperationsArchive: React.FC<OperationsArchiveProps> = ({ onNavigate
           {/* Unterschriftenzeile */}
           <div className="border border-black p-4 text-xs print-no-break space-y-4">
             <div className="font-bold uppercase text-[11px]">
-              9. Formelle Bestätigung & Freigabe
+              10. Formelle Bestätigung & Freigabe
             </div>
             <p className="text-[11px] text-gray-700">
               Hiermit wird die Richtigkeit und Vollständigkeit der vorstehenden Angaben und des Einsatztagebuchs

@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useRescue } from '../context/RescueContext';
-import { User, UserRole, EquipmentType } from '../types';
+import { User, UserRole, EquipmentType, isFirstAdmin, isOwner } from '../types';
 import { compressImageFile } from '../lib/imageUtils';
 import {
   Users,
@@ -51,6 +51,7 @@ export const UserManagementModal: React.FC<UserManagementModalProps> = ({
   const [password, setPassword] = useState('sucher123');
   const [name, setName] = useState('');
   const [role, setRole] = useState<UserRole>('responder');
+  const [isAlsoAdmin, setIsAlsoAdmin] = useState(false);
   const [callSign, setCallSign] = useState('');
   const [licensePlate, setLicensePlate] = useState('');
   const [phone, setPhone] = useState('');
@@ -74,6 +75,7 @@ export const UserManagementModal: React.FC<UserManagementModalProps> = ({
       setPassword(user.password || 'sucher123');
       setName(user.name);
       setRole(user.role);
+      setIsAlsoAdmin(Boolean(user.isAdmin || user.role === 'admin'));
       setCallSign(user.callSign);
       setLicensePlate(user.licensePlate || '');
       setPhone(user.phone || '');
@@ -87,6 +89,7 @@ export const UserManagementModal: React.FC<UserManagementModalProps> = ({
       setPassword('sucher123');
       setName('');
       setRole('responder');
+      setIsAlsoAdmin(false);
       setCallSign('Sucher ' + Math.floor(10 + Math.random() * 90));
       setLicensePlate('SLK-' + Math.floor(100 + Math.random() * 900));
       setPhone('+49 170 ' + Math.floor(1000000 + Math.random() * 9000000));
@@ -180,6 +183,11 @@ export const UserManagementModal: React.FC<UserManagementModalProps> = ({
     setCustomEquipmentTags(customEquipmentTags.filter((t) => t !== tagToRemove));
   };
 
+  const isTargetOwner = Boolean(activeUser && isFirstAdmin(activeUser));
+  const isCurrentUserOwner = Boolean(currentUser && isFirstAdmin(currentUser));
+  const isTargetOwnerProtected = Boolean(isTargetOwner && !isCurrentUserOwner);
+  const isTargetOwnerAndMe = Boolean(isTargetOwner && isCurrentUserOwner);
+
   const handleDeleteUser = () => {
     setStatusMessage(null);
     if (currentUser?.role !== 'admin' && currentUser?.role !== 'einsatzleitung') {
@@ -189,6 +197,10 @@ export const UserManagementModal: React.FC<UserManagementModalProps> = ({
     if (!activeUser) return;
     if (activeUser.id === currentUser?.id) {
       setStatusMessage({ type: 'error', text: 'Sie können Ihren eigenen aktuell aktiven Account nicht löschen.' });
+      return;
+    }
+    if (isFirstAdmin(activeUser)) {
+      setStatusMessage({ type: 'error', text: 'Aktion verweigert: Der First-Admin (Owner Maria) ist unantastbar und kann nicht gelöscht werden.' });
       return;
     }
     const confirmed = window.confirm(
@@ -207,10 +219,19 @@ export const UserManagementModal: React.FC<UserManagementModalProps> = ({
       setStatusMessage({ type: 'error', text: 'Aktion verweigert: Nur Administratoren dürfen Accounts anlegen oder bearbeiten.' });
       return;
     }
+    
+    if (activeUser && isFirstAdmin(activeUser) && !isCurrentUserOwner) {
+      setStatusMessage({ type: 'error', text: 'Aktion verweigert: Der First-Admin (Owner Maria) ist unantastbar und kann nur durch sich selbst bearbeitet werden.' });
+      return;
+    }
+
     if (!name.trim() || !username.trim()) {
       setStatusMessage({ type: 'error', text: 'Bitte füllen Sie Name und Benutzername aus.' });
       return;
     }
+
+    const effectiveIsAdmin = role === 'admin' || isAlsoAdmin;
+    const effectiveCanLead = role === 'einsatzleitung' || role === 'admin';
 
     if (activeUser) {
       updateUser(activeUser.id, {
@@ -218,6 +239,8 @@ export const UserManagementModal: React.FC<UserManagementModalProps> = ({
         password: password.trim(),
         name: name.trim(),
         role,
+        isAdmin: effectiveIsAdmin,
+        canLeadOperations: effectiveCanLead,
         callSign: callSign.trim() || name.trim(),
         licensePlate: licensePlate.trim(),
         phone: phone.trim(),
@@ -233,6 +256,8 @@ export const UserManagementModal: React.FC<UserManagementModalProps> = ({
         password: password.trim(),
         name: name.trim(),
         role,
+        isAdmin: effectiveIsAdmin,
+        canLeadOperations: effectiveCanLead,
         callSign: callSign.trim() || name.trim(),
         licensePlate: licensePlate.trim(),
         phone: phone.trim(),
@@ -279,10 +304,40 @@ export const UserManagementModal: React.FC<UserManagementModalProps> = ({
             <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider font-mono">
               👥 Account auswählen ({allUsers.length} registriert):
             </span>
+            <button
+              type="button"
+              onClick={() => populateForm(null)}
+              className={`px-2 py-0.5 rounded-lg border text-[10px] font-bold font-mono transition cursor-pointer flex items-center gap-1 ${
+                !activeUser
+                  ? 'bg-blue-600 border-blue-400 text-white shadow'
+                  : 'bg-slate-900 border-blue-500/40 text-blue-300 hover:bg-blue-900/40'
+              }`}
+            >
+              <span>➕</span>
+              <span>Neuen Account anlegen</span>
+            </button>
           </div>
           <div className="flex gap-1.5 overflow-x-auto pb-1 scrollbar-thin">
+            <button
+              type="button"
+              onClick={() => populateForm(null)}
+              className={`px-2.5 py-1.5 rounded-xl border text-left transition shrink-0 cursor-pointer font-mono text-[11px] flex items-center gap-2 ${
+                !activeUser
+                  ? 'bg-blue-600/30 border-blue-400 text-white shadow ring-1 ring-blue-400'
+                  : 'bg-slate-900 border-dashed border-blue-500/50 text-blue-300 hover:bg-slate-800'
+              }`}
+            >
+              <div className="w-5 h-5 rounded-full bg-blue-600/40 text-blue-300 border border-blue-400/50 flex items-center justify-center font-bold text-xs">
+                +
+              </div>
+              <div>
+                <div className="font-bold">Neuer Account</div>
+                <div className="text-[9px] text-slate-400 font-normal">Formular leeren</div>
+              </div>
+            </button>
             {allUsers.map((u) => {
               const isSelected = activeUser?.id === u.id;
+              const isOwnerUser = isFirstAdmin(u);
               return (
                 <button
                   type="button"
@@ -290,23 +345,39 @@ export const UserManagementModal: React.FC<UserManagementModalProps> = ({
                   onClick={() => populateForm(u)}
                   className={`px-2.5 py-1.5 rounded-xl border text-left transition shrink-0 cursor-pointer font-mono text-[11px] flex items-center gap-2 ${
                     isSelected
-                      ? 'bg-blue-500/25 border-blue-400 text-white shadow'
+                      ? isOwnerUser
+                        ? 'bg-amber-500/25 border-amber-400 text-white shadow ring-1 ring-amber-400/50'
+                        : 'bg-blue-500/25 border-blue-400 text-white shadow'
+                      : isOwnerUser
+                      ? 'bg-amber-950/40 border-amber-500/50 text-amber-200 hover:bg-amber-900/40'
                       : 'bg-slate-900 border-slate-700/80 text-slate-300 hover:bg-slate-800'
                   }`}
                 >
-                  <div className="w-5 h-5 rounded-full bg-slate-800 text-slate-200 border border-slate-600 flex items-center justify-center font-bold text-[9px] uppercase">
-                    {u.name.charAt(0)}
+                  <div className={`w-5 h-5 rounded-full flex items-center justify-center font-bold text-[9px] uppercase border ${
+                    isOwnerUser
+                      ? 'bg-amber-500/30 text-amber-200 border-amber-400/60'
+                      : 'bg-slate-800 text-slate-200 border border-slate-600'
+                  }`}>
+                    {isOwnerUser ? '👑' : u.name.charAt(0)}
                   </div>
                   <div>
                     <div className="font-bold flex items-center gap-1">
                       <span>{u.name}</span>
-                      {(u.role === 'admin' || u.role === 'einsatzleitung') && (
-                        <span className={`text-[8px] px-1 py-0.2 rounded border ${
-                          u.role === 'admin' ? 'bg-red-950 text-red-300 border-red-800' : 'bg-emerald-950 text-emerald-300 border-emerald-800'
-                        }`}>
-                          {u.role === 'admin' ? 'ADM' : 'EL'}
+                      {isOwnerUser ? (
+                        <span className="text-[8px] px-1 py-0.2 rounded border font-mono font-bold bg-amber-500/20 text-amber-300 border-amber-400/60">
+                          OWNER
                         </span>
-                      )}
+                      ) : (u.role === 'admin' || u.role === 'einsatzleitung' || u.isAdmin) ? (
+                        <span className={`text-[8px] px-1 py-0.2 rounded border font-mono font-bold ${
+                          u.role === 'admin'
+                            ? 'bg-red-950 text-red-300 border-red-800'
+                            : u.isAdmin
+                            ? 'bg-amber-950 text-amber-300 border-amber-800'
+                            : 'bg-emerald-950 text-emerald-300 border-emerald-800'
+                        }`}>
+                          {u.role === 'admin' ? 'ADM' : u.isAdmin ? 'EL+ADM' : 'EL'}
+                        </span>
+                      ) : null}
                     </div>
                     <div className="text-[9px] text-slate-400 font-normal">
                       {u.callSign}
@@ -319,6 +390,45 @@ export const UserManagementModal: React.FC<UserManagementModalProps> = ({
         </div>
 
         <form onSubmit={handleSubmit} className="p-5 space-y-4 max-h-[70vh] overflow-y-auto text-xs">
+          {/* Owner Protection Notification Banner */}
+          {isTargetOwnerProtected && (
+            <div className="p-3.5 rounded-xl bg-amber-950/80 border-2 border-amber-500/80 text-amber-200 text-xs font-mono flex items-start gap-3 shadow-lg">
+              <div className="p-2 rounded-lg bg-amber-500/20 text-amber-300 border border-amber-500/40 shrink-0 text-base">
+                👑
+              </div>
+              <div>
+                <div className="font-bold text-amber-300 uppercase tracking-wide flex items-center gap-2">
+                  <span>FIRST ADMIN & APP-OWNER (UNANTASTBAR)</span>
+                  <span className="text-[10px] px-2 py-0.5 rounded bg-amber-500/30 text-amber-200 border border-amber-400/60 font-bold">
+                    Schreibgeschützt
+                  </span>
+                </div>
+                <p className="text-[11px] text-amber-200/90 mt-1 leading-relaxed">
+                  Dieser Account gehört Maria (App-Owner). Als First Admin kann dieser Account von anderen Administratoren weder bearbeitet noch gelöscht werden. Nur Maria selbst darf ihren eigenen Account verwalten.
+                </p>
+              </div>
+            </div>
+          )}
+
+          {isTargetOwnerAndMe && (
+            <div className="p-3.5 rounded-xl bg-amber-950/60 border border-amber-500/60 text-amber-200 text-xs font-mono flex items-start gap-3 shadow-md">
+              <div className="p-2 rounded-lg bg-amber-500/20 text-amber-300 border border-amber-500/40 shrink-0 text-base">
+                👑
+              </div>
+              <div>
+                <div className="font-bold text-amber-300 uppercase tracking-wide flex items-center gap-2">
+                  <span>DEIN FIRST-ADMIN ACCOUNT (APP-OWNER)</span>
+                  <span className="text-[10px] px-2 py-0.5 rounded bg-amber-500/30 text-amber-200 border border-amber-400/60 font-bold">
+                    Unantastbar
+                  </span>
+                </div>
+                <p className="text-[11px] text-amber-200/90 mt-1 leading-relaxed">
+                  Du bist als First Admin & App-Owner eingeloggt. Dein Account ist vor Eingriffen anderer Admins geschützt. Hier kannst du deine Zugangsdaten und Kontaktdaten pflegen.
+                </p>
+              </div>
+            </div>
+          )}
+
           {statusMessage && (
             <div
               className={`p-3 rounded-xl border text-xs font-mono flex items-center gap-2 ${
@@ -455,6 +565,49 @@ export const UserManagementModal: React.FC<UserManagementModalProps> = ({
                     Nur Leseansicht (Polizei, Gast). Kein GPS auf Karte.
                   </span>
                 </button>
+              </div>
+
+              {/* Role Combination Feature (EL + Admin) */}
+              <div className="mt-3 p-3 rounded-xl bg-slate-900/90 border border-slate-700/80 flex items-start justify-between gap-3">
+                <div className="flex items-start gap-2.5">
+                  <div className="p-1.5 rounded-lg bg-amber-500/10 text-amber-400 border border-amber-500/30 shrink-0 mt-0.5">
+                    <Shield className="w-4 h-4" />
+                  </div>
+                  <div>
+                    <div className="text-xs font-bold text-slate-200 flex items-center gap-2 flex-wrap">
+                      <span>Administrator-Rechte mit Einsatzleitung kombinieren</span>
+                      {role === 'einsatzleitung' && isAlsoAdmin && (
+                        <span className="px-2 py-0.5 text-[10px] font-mono font-bold bg-amber-500/20 text-amber-300 border border-amber-500/40 rounded-full">
+                          Kombiniert: EL + Admin
+                        </span>
+                      )}
+                      {role === 'einsatzleitung' && !isAlsoAdmin && (
+                        <span className="px-2 py-0.5 text-[10px] font-mono font-bold bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 rounded-full">
+                          Nur Einsatzleitung (kein Admin)
+                        </span>
+                      )}
+                      {role === 'admin' && (
+                        <span className="px-2 py-0.5 text-[10px] font-mono font-bold bg-red-500/20 text-red-300 border border-red-500/40 rounded-full">
+                          Voll-Administrator
+                        </span>
+                      )}
+                    </div>
+                    <p className="text-[11px] text-slate-400 mt-0.5 leading-relaxed">
+                      Erlaubt dieser Person zusätzlich Benutzerkonten anzulegen, Rollen zu verwalten und System-Logs einzusehen.
+                      Nicht jeder Einsatzleiter ist automatisch System-Administrator.
+                    </p>
+                  </div>
+                </div>
+                <label className="relative inline-flex items-center cursor-pointer shrink-0 mt-1">
+                  <input
+                    type="checkbox"
+                    checked={role === 'admin' || isAlsoAdmin}
+                    disabled={role === 'admin'}
+                    onChange={(e) => setIsAlsoAdmin(e.target.checked)}
+                    className="sr-only peer"
+                  />
+                  <div className="w-11 h-6 bg-slate-800 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-amber-600 peer-disabled:opacity-60"></div>
+                </label>
               </div>
             </div>
           </div>
@@ -711,7 +864,7 @@ export const UserManagementModal: React.FC<UserManagementModalProps> = ({
                 Alle abmelden
               </button>
 
-              {activeUser && currentUser?.role === 'admin' && activeUser.id !== currentUser.id && (
+              {activeUser && currentUser?.role === 'admin' && activeUser.id !== currentUser.id && !isFirstAdmin(activeUser) && (
                 <>
                   {(currentOperation?.participantIds?.includes(activeUser.id) || activeUser.isActive) && (
                     <button
@@ -770,10 +923,19 @@ export const UserManagementModal: React.FC<UserManagementModalProps> = ({
               </button>
               <button
                 type="submit"
-                className="px-5 py-2 rounded-xl bg-blue-600 hover:bg-blue-500 text-white font-bold transition cursor-pointer flex items-center gap-1.5 shadow uppercase tracking-wider font-mono text-xs"
+                disabled={isTargetOwnerProtected}
+                className={`px-5 py-2 rounded-xl text-white font-bold transition flex items-center gap-1.5 shadow uppercase tracking-wider font-mono text-xs ${
+                  isTargetOwnerProtected
+                    ? 'bg-slate-700 text-slate-400 cursor-not-allowed border border-slate-600'
+                    : 'bg-blue-600 hover:bg-blue-500 cursor-pointer'
+                }`}
               >
                 <Save className="w-3.5 h-3.5" />
-                {activeUser ? 'Änderungen speichern' : 'Account anlegen'}
+                {isTargetOwnerProtected
+                  ? 'Schreibgeschützt (Owner)'
+                  : activeUser
+                  ? 'Änderungen speichern'
+                  : 'Account anlegen'}
               </button>
             </div>
           </div>

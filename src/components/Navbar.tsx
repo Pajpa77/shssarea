@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useRescue } from '../context/RescueContext';
-import { User } from '../types';
+import { User, isFirstAdmin } from '../types';
 import {
   Shield,
   Radio,
@@ -121,9 +121,11 @@ export const Navbar: React.FC<NavbarProps> = ({
   }, [activeTab]);
 
   const isExercise = currentOperation?.type === 'exercise';
-  const isAdmin = currentUser?.role === 'admin';
-  const isEL = currentUser?.role === 'einsatzleitung';
-  const canManageOps = isAdmin || isEL;
+  const isRealAdmin = currentUser?.role === 'admin' || Boolean(currentUser?.isAdmin);
+  const canLead = currentUser?.role === 'einsatzleitung' || Boolean(currentUser?.canLeadOperations) || isRealAdmin;
+  const isAdmin = isRealAdmin || canLead;
+  const isEL = currentUser?.role === 'einsatzleitung' || Boolean(currentUser?.canLeadOperations);
+  const canManageOps = true;
 
   return (
     <header className="h-14 sm:h-16 flex items-center justify-between px-3 sm:px-5 bg-[#1E293B] border-b border-slate-700 shadow-lg shrink-0 sticky top-0 z-[1000] text-slate-200">
@@ -156,10 +158,10 @@ export const Navbar: React.FC<NavbarProps> = ({
             <>
               {/* Click-away transparent overlay */}
               <div
-                className="fixed inset-0 z-[1200]"
+                className="fixed inset-0 z-[2100]"
                 onClick={() => setShowSarAdminMenu(false)}
               />
-              <div className="fixed sm:absolute top-14 sm:top-full left-2 sm:left-0 right-2 sm:right-auto sm:w-96 max-w-[calc(100vw-1rem)] max-h-[calc(100vh-4.5rem)] overflow-y-auto bg-[#1E293B] border border-slate-600 rounded-2xl shadow-2xl p-3 z-[1300] text-xs animate-in fade-in zoom-in-95 duration-150 backdrop-blur-md">
+              <div className="fixed sm:absolute top-14 sm:top-full left-2 sm:left-0 right-2 sm:right-auto sm:w-96 max-w-[calc(100vw-1rem)] max-h-[calc(100vh-4.5rem)] overflow-y-auto overscroll-contain bg-[#1E293B] border border-slate-600 rounded-2xl shadow-2xl p-3 z-[2200] text-xs animate-in fade-in zoom-in-95 duration-150 backdrop-blur-md">
                 {/* Menu Header */}
                 <div className="flex items-center justify-between px-2 py-1.5 border-b border-slate-700/80 mb-2">
                   <div className="flex items-center gap-2">
@@ -406,10 +408,10 @@ export const Navbar: React.FC<NavbarProps> = ({
               {showOpDropdown && (
                 <>
                   <div
-                    className="fixed inset-0 z-[1050]"
+                    className="fixed inset-0 z-[2100]"
                     onClick={() => setShowOpDropdown(false)}
                   />
-                  <div className="fixed sm:absolute top-14 sm:top-full left-2 sm:left-0 right-2 sm:right-auto sm:w-96 max-w-[calc(100vw-1rem)] max-h-[calc(100vh-4.5rem)] overflow-y-auto bg-[#1E293B] border border-slate-700 rounded-2xl shadow-2xl p-3 z-[1200] text-xs animate-in fade-in zoom-in-95 duration-150">
+                  <div className="fixed sm:absolute top-14 sm:top-full left-2 sm:left-0 right-2 sm:right-auto sm:w-96 max-w-[calc(100vw-1rem)] max-h-[calc(100vh-4.5rem)] overflow-y-auto overscroll-contain bg-[#1E293B] border border-slate-700 rounded-2xl shadow-2xl p-3 z-[2200] text-xs animate-in fade-in zoom-in-95 duration-150">
                     <div className="flex items-center justify-between font-bold text-slate-300 px-2 py-1 border-b border-slate-700 uppercase tracking-wider text-[10px] font-mono">
                       <span>Einsatz-Auswahl & Status</span>
                       {isAdmin && onOpenCreateOperationModal && (
@@ -425,7 +427,7 @@ export const Navbar: React.FC<NavbarProps> = ({
                       )}
                     </div>
 
-                    <div className="max-h-72 overflow-y-auto space-y-2 my-1.5 pr-1">
+                    <div className="space-y-2 my-1.5 pr-1">
                       {/* Section 1: Aktive Einsätze */}
                       <div>
                         <div className="text-[10px] font-bold text-emerald-400 uppercase font-mono px-2 py-1 flex items-center gap-1.5">
@@ -667,19 +669,44 @@ export const Navbar: React.FC<NavbarProps> = ({
 
               {showResponderListDropdown && (
                 <>
-                  <div className="fixed inset-0 z-[1050]" onClick={() => setShowResponderListDropdown(false)} />
-                  <div className="fixed sm:absolute top-14 sm:top-full left-2 sm:left-0 right-2 sm:right-auto sm:w-96 max-w-[calc(100vw-1rem)] max-h-[calc(100vh-4.5rem)] overflow-y-auto bg-[#1E293B] border border-slate-700 rounded-2xl shadow-2xl p-3 z-[1200] text-xs animate-in fade-in zoom-in-95 duration-150 space-y-2">
+                  <div className="fixed inset-0 z-[2100]" onClick={() => setShowResponderListDropdown(false)} />
+                  <div className="fixed sm:absolute top-14 sm:top-full left-2 sm:left-0 right-2 sm:right-auto sm:w-96 max-w-[calc(100vw-1rem)] max-h-[calc(100vh-4.5rem)] overflow-y-auto overscroll-contain bg-[#1E293B] border border-slate-700 rounded-2xl shadow-2xl p-3 z-[2200] text-xs animate-in fade-in zoom-in-95 duration-150 space-y-2">
                     <div className="flex items-center justify-between font-bold text-slate-300 px-1 border-b border-slate-700 uppercase tracking-wider text-[10px] font-mono pb-1">
                       <span>Einsatzkräfte & Bereitschaft</span>
                       <span className="text-blue-400">{allUsers.filter(u => u.isActive).length} aktiv</span>
                     </div>
 
-                    <div className="space-y-1.5 max-h-60 overflow-y-auto pr-1">
+                    {/* EZ Target & Navigation link */}
+                    <div className="bg-indigo-950/60 border border-indigo-500/40 rounded-xl p-2 flex items-center justify-between text-[11px] font-mono">
+                      <div className="min-w-0 mr-2">
+                        <div className="text-[9px] text-indigo-300 font-bold uppercase">
+                          {currentOperation && (currentOperation.status === 'active' || currentOperation.status === 'paused') ? '🚨 Aktive Einsatz-EZ' : '🏢 Vereinsbüro Aschersleben'}
+                        </div>
+                        <div className="text-slate-200 truncate font-semibold text-[10px]">
+                          {(currentOperation && (currentOperation.status === 'active' || currentOperation.status === 'paused') && currentOperation.headquartersLocation?.address) ? currentOperation.headquartersLocation.address : 'Hohe Straße 15, Aschersleben'}
+                        </div>
+                      </div>
+                      <a
+                        href={`https://www.google.com/maps/dir/?api=1&destination=${
+                          (currentOperation && (currentOperation.status === 'active' || currentOperation.status === 'paused') && currentOperation.headquartersLocation?.lat)
+                            ? `${currentOperation.headquartersLocation.lat},${currentOperation.headquartersLocation.lng}`
+                            : '51.7587,11.4589'
+                        }`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="px-2 py-1 bg-blue-600 hover:bg-blue-500 text-white rounded font-bold text-[10px] shrink-0 no-underline flex items-center gap-1"
+                        title="Route zur EZ in Google Maps / Navi starten"
+                      >
+                        🧭 Navi
+                      </a>
+                    </div>
+
+                    <div className="space-y-1.5 pr-1">
                       {[...allUsers].sort((a, b) => (b.isActive ? 1 : 0) - (a.isActive ? 1 : 0)).map((user) => {
                         const isOnline = user.isActive;
                         const status = getUserArrivalStatus(user.id);
                         const loc = userLocations[user.id]?.currentPosition;
-                        const distMeters = loc && currentOperation?.headquartersLocation ? calculateDistanceToEzMeters(loc.lat, loc.lng) : null;
+                        const distMeters = loc ? calculateDistanceToEzMeters(loc.lat, loc.lng) : null;
                         const distText = distMeters !== null ? (distMeters >= 1000 ? `${(distMeters / 1000).toFixed(1)} km` : `${Math.round(distMeters)} m`) : 'Kein GPS';
 
                         let statusBadge = { label: 'In Anfahrt', color: 'bg-red-500/20 text-red-300 border-red-500/50', icon: '🔴' };
@@ -815,87 +842,21 @@ export const Navbar: React.FC<NavbarProps> = ({
                 </span>
               </button>
             ) : (
-              <div className="flex flex-col gap-2 w-full max-w-sm my-2 p-3 bg-slate-900/90 rounded-2xl border border-slate-700/80 shadow-lg">
-                <div className="flex items-center gap-1.5">
-                  <span className="w-2 h-2 rounded-full bg-slate-500"></span>
-                  <span className="font-mono text-slate-400 font-medium text-xs">Bereitschaft (Kein aktiver Einsatz)</span>
-                </div>
-
-                {/* Active user list placed directly above the Einsatz starten button */}
-                <div className="space-y-1.5 max-h-48 overflow-y-auto pr-1">
-                  <div className="text-[10px] font-bold text-slate-400 font-mono uppercase px-1">
-                    Aktive Einsatzkräfte ({allUsers.filter(u => u.isActive).length}/{allUsers.length}):
-                  </div>
-                  {[...allUsers].sort((a, b) => {
-                    if (a.isActive && !b.isActive) return -1;
-                    if (!a.isActive && b.isActive) return 1;
-                    return a.name.localeCompare(b.name);
-                  }).map((u) => {
-                    const arrivalStatus = getUserArrivalStatus ? getUserArrivalStatus(u.id) : 'in_transit';
-                    const statusColor = !u.isActive
-                      ? 'bg-slate-800 text-slate-500 border-slate-700'
-                      : arrivalStatus === 'ready'
-                      ? 'bg-emerald-950/60 text-emerald-300 border-emerald-600/70'
-                      : arrivalStatus === 'ez_reached'
-                      ? 'bg-amber-950/60 text-amber-300 border-amber-600/70'
-                      : 'bg-red-950/60 text-red-300 border-red-600/70';
-
-                    const statusText = !u.isActive
-                      ? 'Abgemeldet'
-                      : arrivalStatus === 'ready'
-                      ? '🟢 Bereit'
-                      : arrivalStatus === 'ez_reached'
-                      ? '🟡 EZ erreicht'
-                      : '🔴 In Anfahrt';
-
-                    return (
-                      <div
-                        key={u.id}
-                        className={`p-2 rounded-xl border flex items-center justify-between text-[11px] transition ${
-                          !u.isActive
-                            ? 'opacity-50 grayscale bg-slate-950/60 border-slate-900 text-slate-500'
-                            : 'bg-slate-950/80 border-slate-800 text-slate-200'
-                        }`}
-                      >
-                        <div className="flex items-center gap-2 min-w-0">
-                          <div className="h-6 w-6 rounded-lg overflow-hidden border border-slate-700 bg-slate-900 shrink-0">
-                            {u.photoUrl ? (
-                              <img src={u.photoUrl} alt={u.name} className="h-full w-full object-cover" />
-                            ) : (
-                              <div className="h-full w-full flex items-center justify-center text-[10px] font-bold text-slate-400">
-                                {u.name.charAt(0)}
-                              </div>
-                            )}
-                          </div>
-                          <div className="min-w-0">
-                            <div className="font-bold truncate">
-                              {u.callSign || u.name}
-                            </div>
-                            <div className="text-[9px] text-slate-400 font-mono truncate">
-                              {u.role === 'admin' ? '🛡️ Admin' : '🚶 Sucher'} • {u.licensePlate || 'Kein KFZ'}
-                            </div>
-                          </div>
-                        </div>
-
-                        <div className="flex items-center gap-1.5 shrink-0">
-                          <span className={`px-1.5 py-0.5 rounded border text-[9px] font-mono font-bold ${statusColor}`}>
-                            {statusText}
-                          </span>
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-
-                {isAdmin && onOpenCreateOperationModal && (
-                  <button
-                    onClick={onOpenCreateOperationModal}
-                    className="w-full py-2 bg-blue-600 hover:bg-blue-500 text-white rounded-xl text-xs font-bold font-mono uppercase cursor-pointer flex items-center justify-center gap-1.5 shadow"
-                  >
-                    <span>+ Einsatz starten</span>
-                  </button>
-                )}
-              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  setShowOpDropdown(true);
+                  setShowSarAdminMenu(false);
+                  setShowUserDropdown(false);
+                  setShowResponderListDropdown(false);
+                }}
+                className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg border bg-slate-800/90 hover:bg-slate-700/90 border-slate-700 hover:border-blue-500/60 text-slate-200 transition cursor-pointer text-left shadow-sm group font-mono text-[10px] sm:text-xs"
+                title="Bereitschaftsmodus - Klicken zum Wählen oder Starten eines Einsatzes"
+              >
+                <span className="w-2 h-2 rounded-full bg-amber-400 animate-pulse shrink-0" />
+                <span className="font-bold text-amber-300">Bereitschaft</span>
+                <span className="text-slate-400 text-[10px] hidden sm:inline">(Kein aktiver Einsatz)</span>
+              </button>
             )}
           </div>
         </div>
@@ -1050,11 +1011,11 @@ export const Navbar: React.FC<NavbarProps> = ({
         {onOpenShareAppModal && (
           <button
             onClick={onOpenShareAppModal}
-            className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-blue-950/70 hover:bg-blue-900 text-blue-300 hover:text-white border border-blue-700/60 transition cursor-pointer text-[10px] font-mono font-bold shadow-sm"
+            className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-blue-950/70 hover:bg-blue-900 text-blue-300 hover:text-white border border-blue-700/60 transition cursor-pointer text-[10px] font-mono font-bold shadow-sm shrink-0"
             title="App per QR-Code oder Direktlink an andere Einsatzkräfte teilen"
           >
-            <Share2 className="w-3.5 h-3.5 text-blue-400" />
-            <span className="hidden md:inline">TEILEN / QR</span>
+            <Share2 className="w-3.5 h-3.5 text-blue-400 shrink-0" />
+            <span className="hidden md:inline whitespace-nowrap">TEILEN / QR</span>
           </button>
         )}
 
@@ -1075,13 +1036,26 @@ export const Navbar: React.FC<NavbarProps> = ({
             className="flex items-center gap-2 sm:gap-3 p-1 rounded-xl hover:bg-slate-800 transition cursor-pointer text-left"
           >
             <div className="text-right hidden sm:block">
-              <p className="text-xs sm:text-sm font-bold text-slate-100">{currentUser?.name || 'Benutzer'}</p>
+              <p className="text-xs sm:text-sm font-bold text-slate-100 flex items-center gap-1 justify-end">
+                <span>{currentUser?.name || 'Benutzer'}</span>
+                {isFirstAdmin(currentUser) && <span title="First Admin & App-Owner (unantastbar)">👑</span>}
+              </p>
               <p className="text-[10px] text-emerald-400 font-medium uppercase font-mono tracking-wide">
-                {currentUser?.role === 'admin' ? 'EINSATZLEITUNG' : (currentUser?.callSign || 'EINSATZKRAFT')}
+                {isFirstAdmin(currentUser)
+                  ? 'FIRST ADMIN (OWNER)'
+                  : currentUser?.role === 'admin'
+                  ? 'ADMINISTRATOR'
+                  : currentUser?.isAdmin
+                  ? 'EL & ADMIN'
+                  : currentUser?.role === 'einsatzleitung'
+                  ? 'EINSATZLEITUNG'
+                  : (currentUser?.callSign || 'EINSATZKRAFT')}
               </p>
             </div>
 
-            <div className="w-8 h-8 sm:w-9 sm:h-9 rounded-full bg-slate-700 border-2 border-slate-500 flex items-center justify-center overflow-hidden shadow">
+            <div className={`w-8 h-8 sm:w-9 sm:h-9 rounded-full bg-slate-700 border-2 flex items-center justify-center overflow-hidden shadow ${
+              isFirstAdmin(currentUser) ? 'border-amber-400 ring-2 ring-amber-400/40' : 'border-slate-500'
+            }`}>
               {currentUser?.photoUrl ? (
                 <img src={currentUser.photoUrl} alt={currentUser.name} className="w-full h-full object-cover" />
               ) : (
@@ -1095,15 +1069,22 @@ export const Navbar: React.FC<NavbarProps> = ({
           {showUserDropdown && (
             <>
               <div
-                className="fixed inset-0 z-[1150]"
+                className="fixed inset-0 z-[2100]"
                 onClick={() => setShowUserDropdown(false)}
               />
-              <div className="fixed sm:absolute top-14 sm:top-full right-2 sm:right-0 left-2 sm:left-auto sm:w-80 max-w-[calc(100vw-1rem)] max-h-[calc(100vh-4.5rem)] overflow-y-auto bg-[#1E293B] border border-slate-700 rounded-2xl shadow-2xl p-3 z-[1200] text-xs animate-in fade-in zoom-in-95 duration-150">
+              <div className="fixed sm:absolute top-14 sm:top-full right-2 sm:right-0 left-2 sm:left-auto sm:w-80 max-w-[calc(100vw-1rem)] max-h-[calc(100vh-4.5rem)] overflow-y-auto overscroll-contain bg-[#1E293B] border border-slate-700 rounded-2xl shadow-2xl p-3 z-[2200] text-xs animate-in fade-in zoom-in-95 duration-150">
                 <div className="px-2 py-1.5 border-b border-slate-700 mb-2">
-                  <div className="font-bold text-white text-sm">{currentUser?.name}</div>
+                  <div className="font-bold text-white text-sm flex items-center gap-1.5">
+                    <span>{currentUser?.name}</span>
+                    {isFirstAdmin(currentUser) && (
+                      <span className="px-1.5 py-0.2 rounded bg-amber-500/20 text-amber-300 border border-amber-500/40 text-[9px] font-mono font-bold">
+                        👑 OWNER
+                      </span>
+                    )}
+                  </div>
                   <div className="text-blue-400 font-mono text-[11px]">{currentUser?.callSign}</div>
                   <div className="text-slate-400 text-[10px] mt-0.5 font-mono">
-                    KFZ: {currentUser?.licensePlate || 'k.A.'} • {currentUser?.role === 'admin' ? 'ELZ (Admin)' : 'Einsatzkraft'}
+                    KFZ: {currentUser?.licensePlate || 'k.A.'} • {isFirstAdmin(currentUser) ? 'First Admin & App-Owner (unantastbar)' : currentUser?.role === 'admin' ? 'ELZ (Admin)' : 'Einsatzkraft'}
                   </div>
                 </div>
 
@@ -1129,70 +1110,6 @@ export const Navbar: React.FC<NavbarProps> = ({
                     <span>Abmelden (Logout)</span>
                   </button>
                 </div>
-
-              {isAdmin && (
-                <div className="border-t border-slate-700 pt-2">
-                  <div className="text-[10px] font-bold text-amber-400 uppercase px-2 mb-1 font-mono flex items-center justify-between">
-                    <span>Einsatzleitung: Accounts</span>
-                    <span className="text-[9px] px-1 py-0.5 rounded bg-amber-500/20 text-amber-300">Admin</span>
-                  </div>
-                  <div className="max-h-48 overflow-y-auto space-y-1">
-                    {allUsers.map((u) => (
-                      <div
-                        key={u.id}
-                        className={`w-full flex items-center justify-between p-1.5 rounded-xl transition ${
-                          u.id === currentUser?.id
-                            ? 'bg-blue-500/20 text-blue-300 border border-blue-500'
-                            : 'hover:bg-slate-800 text-slate-300'
-                        }`}
-                      >
-                        <button
-                          onClick={() => {
-                            switchUser(u.id);
-                            setShowUserDropdown(false);
-                          }}
-                          className="flex-1 flex items-center gap-2 truncate cursor-pointer text-left"
-                        >
-                          <span className="text-sm">
-                            {u.role === 'admin'
-                              ? '🛡️'
-                              : u.equipment.includes('drone')
-                              ? '🚁'
-                              : u.equipment.includes('k9_mantrailer') || u.equipment.includes('k9_area')
-                              ? '🐕'
-                              : '👤'}
-                          </span>
-                          <div className="truncate">
-                            <div className="font-semibold text-xs leading-none">{u.name}</div>
-                            <div className="text-[10px] text-slate-400 font-mono">{u.callSign}</div>
-                          </div>
-                        </button>
-
-                        <div className="flex items-center gap-1 shrink-0 ml-1">
-                          {onOpenEditUser && (
-                            <button
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                setShowUserDropdown(false);
-                                onOpenEditUser(u);
-                              }}
-                              className="p-1 rounded hover:bg-slate-700 text-slate-400 hover:text-white transition cursor-pointer"
-                              title="Diesen Account bearbeiten / löschen"
-                            >
-                              <Edit3 className="w-3 h-3" />
-                            </button>
-                          )}
-                          {u.role === 'admin' && (
-                            <span className="text-[9px] px-1 py-0.5 rounded bg-red-900/60 text-red-300 font-mono font-bold">
-                              Admin
-                            </span>
-                          )}
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
             </div>
           </>
         )}

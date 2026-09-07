@@ -1,10 +1,9 @@
 import React, { useEffect, useRef, useState, useCallback, useMemo } from 'react';
 import L from 'leaflet';
-import html2canvas from 'html2canvas';
+import { captureTacticalMapScreenshot } from '../lib/mapSnapshotHelper';
 import { useRescue } from '../context/RescueContext';
 import { SearchSector, Finding, User, EquipmentType, SectorStatus, UserLocationState, SearchOperation } from '../types';
 import { VEREINSBUERO_LOCATION } from '../mockData';
-import { TacticalWeatherWidget } from './TacticalWeatherWidget';
 import {
   Layers,
   MapPin,
@@ -28,9 +27,11 @@ import {
   Check,
   MousePointer,
   Camera,
-  CloudSun,
   ChevronDown,
   ChevronUp,
+  ExternalLink,
+  Copy,
+  X,
 } from 'lucide-react';
 
 interface TacticalMapProps {
@@ -90,7 +91,7 @@ interface TileLayerConfig {
 }
 
 // Tile layers configurations (All 100% free, reliable, no API key required)
-const TILE_LAYERS: Record<'osm' | 'hybrid' | 'satellite' | 'dark', TileLayerConfig> = {
+const TILE_LAYERS: Record<'osm' | 'hybrid' | 'satellite', TileLayerConfig> = {
   osm: {
     name: 'Standard Straße & Wald (OSM)',
     url: 'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',
@@ -109,13 +110,6 @@ const TILE_LAYERS: Record<'osm' | 'hybrid' | 'satellite' | 'dark', TileLayerConf
     url: 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
     overlayUrl: 'https://{s}.basemaps.cartocdn.com/rastertiles/voyager_only_labels/{z}/{x}/{y}{r}.png',
     attribution: '&copy; Esri, Maxar, &copy; OpenStreetMap',
-    subdomains: ['a', 'b', 'c', 'd'],
-    maxZoom: 19,
-  },
-  dark: {
-    name: 'Taktisch Dunkel',
-    url: 'https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png',
-    attribution: '&copy; OpenStreetMap, &copy; CARTO',
     subdomains: ['a', 'b', 'c', 'd'],
     maxZoom: 19,
   },
@@ -189,9 +183,10 @@ export const TacticalMap: React.FC<TacticalMapProps> = ({
   const findingsLayerRef = useRef<L.FeatureGroup | null>(null);
   const plsLayerRef = useRef<L.FeatureGroup | null>(null);
   const drawLayerRef = useRef<L.FeatureGroup | null>(null);
+  const ezLayerRef = useRef<L.FeatureGroup | null>(null);
 
   // Map state - Default to OpenStreetMap for maximum clarity of street names & paths
-  const [activeBaseMap, setActiveBaseMap] = useState<'osm' | 'hybrid' | 'satellite' | 'dark'>('osm');
+  const [activeBaseMap, setActiveBaseMap] = useState<'osm' | 'hybrid' | 'satellite'>('osm');
   const [showTracks, setShowTracks] = useState(true);
   const [showSectors, setShowSectors] = useState(true);
   const [showResponders, setShowResponders] = useState(!isArchiveMode);
@@ -200,36 +195,73 @@ export const TacticalMap: React.FC<TacticalMapProps> = ({
   const [showFalseAlarms, setShowFalseAlarms] = useState(false);
   const [showRadiusRings, setShowRadiusRings] = useState(!isArchiveMode);
   const [isLayersOpenMobile, setIsLayersOpenMobile] = useState(false);
-  const [isWeatherOpenMobile, setIsWeatherOpenMobile] = useState(false);
   const [isDesktopSidebarCollapsed, setIsDesktopSidebarCollapsed] = useState(false);
-  const [desktopSidebarTab, setDesktopSidebarTab] = useState<'layers' | 'actions' | 'weather'>('layers');
-  const [isSectorCardMinimized, setIsSectorCardMinimized] = useState(false);
-  const [isUserCardMinimized, setIsUserCardMinimized] = useState(false);
+  const [desktopSidebarTab, setDesktopSidebarTab] = useState<'layers' | 'actions'>('layers');
   const [drawnPoints, setDrawnPoints] = useState<[number, number][]>([]);
   const [drawMode, setDrawMode] = useState<'pen' | 'click'>('pen');
   const [strokeHistory, setStrokeHistory] = useState<[number, number][][]>([]);
   const [selectedSector, setSelectedSector] = useState<SearchSector | null>(null);
   const [isCapturingSnapshot, setIsCapturingSnapshot] = useState(false);
   const [snapshotSavedNotice, setSnapshotSavedNotice] = useState(false);
+  const isAdminOrEL = currentUser?.role === 'admin' || currentUser?.role === 'einsatzleitung';
+
+  // EZ Navigation Modal state for interactive coordination transfer to GPS/Navi apps
+  const [ezNavData, setEzNavData] = useState<{
+    lat: number;
+    lng: number;
+    address: string;
+    title: string;
+    isStandbyOffice: boolean;
+    operationTitle?: string;
+    commander?: string;
+  } | null>(null);
+  const [copiedCoords, setCopiedCoords] = useState(false);
+
+  // Universal navigation launcher (Google Maps, Apple Maps, Android Geo Intent)
+  const handleOpenNavigation = useCallback((lat: number, lng: number, label: string) => {
+    const isIOS =
+      /iPad|iPhone|iPod/.test(navigator.userAgent) ||
+      (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+    const isAndroid = /Android/.test(navigator.userAgent);
+
+    if (isAndroid) {
+      // Universal Android geo intent - triggers whichever navi app user has installed
+      window.location.href = `geo:${lat},${lng}?q=${lat},${lng}(${encodeURIComponent(label)})`;
+    } else if (isIOS) {
+      window.location.href = `maps://?daddr=${lat},${lng}&q=${encodeURIComponent(label)}`;
+    } else {
+      window.open(
+        `https://www.google.com/maps/dir/?api=1&destination=${lat},${lng}`,
+        '_blank',
+        'noopener,noreferrer'
+      );
+    }
+  }, []);
+
+  const handleCopyCoordinates = useCallback((lat: number, lng: number) => {
+    const text = `${lat.toFixed(6)}, ${lng.toFixed(6)}`;
+    if (navigator.clipboard?.writeText) {
+      navigator.clipboard.writeText(text).then(() => {
+        setCopiedCoords(true);
+        setTimeout(() => setCopiedCoords(false), 2500);
+      });
+    }
+  }, []);
 
   const captureMapSnapshot = async () => {
-    if (!mapContainerRef.current || !currentOperation) return;
+    if (!currentOperation) return;
     setIsCapturingSnapshot(true);
     try {
-      const canvas = await html2canvas(mapContainerRef.current, {
-        useCORS: true,
-        allowTaint: true,
-        logging: false,
-        backgroundColor: '#0f172a',
-      });
-      const dataUrl = canvas.toDataURL('image/jpeg', 0.85);
-      if (onSaveSnapshot) {
-        onSaveSnapshot(dataUrl);
-      } else {
-        saveMapSnapshot(currentOperation.id, dataUrl);
+      const dataUrl = await captureTacticalMapScreenshot(currentOperation, userLocations);
+      if (dataUrl) {
+        if (onSaveSnapshot) {
+          onSaveSnapshot(dataUrl);
+        } else {
+          saveMapSnapshot(currentOperation.id, dataUrl);
+        }
+        setSnapshotSavedNotice(true);
+        setTimeout(() => setSnapshotSavedNotice(false), 3500);
       }
-      setSnapshotSavedNotice(true);
-      setTimeout(() => setSnapshotSavedNotice(false), 3500);
     } catch (err) {
       console.error('Lagekarten-Snapshot fehlgeschlagen:', err);
     } finally {
@@ -261,18 +293,20 @@ export const TacticalMap: React.FC<TacticalMapProps> = ({
   const currentStrokeRef = useRef<[number, number][]>([]);
 
   // Function to create tile layer or hybrid layer group
-  const createTileLayer = (key: 'osm' | 'hybrid' | 'satellite' | 'dark'): L.Layer => {
+  const createTileLayer = (key: 'osm' | 'hybrid' | 'satellite'): L.Layer => {
     const config = TILE_LAYERS[key] || TILE_LAYERS.osm;
     if (key === 'hybrid' && 'overlayUrl' in config && config.overlayUrl) {
       const baseSat = L.tileLayer(config.url, {
         attribution: config.attribution,
         maxZoom: config.maxZoom || 19,
+        crossOrigin: true,
       });
       const labelsOverlay = L.tileLayer(config.overlayUrl, {
         subdomains: config.subdomains || ['a', 'b', 'c', 'd'],
         maxZoom: config.maxZoom || 19,
         pane: 'overlayPane',
         opacity: 1,
+        crossOrigin: true,
       });
       return L.layerGroup([baseSat, labelsOverlay]);
     }
@@ -280,6 +314,7 @@ export const TacticalMap: React.FC<TacticalMapProps> = ({
       attribution: config.attribution,
       subdomains: config.subdomains || ['a', 'b', 'c'],
       maxZoom: config.maxZoom || 19,
+      crossOrigin: true,
     });
   };
 
@@ -318,6 +353,7 @@ export const TacticalMap: React.FC<TacticalMapProps> = ({
     findingsLayerRef.current = L.featureGroup().addTo(map);
     plsLayerRef.current = L.featureGroup().addTo(map);
     drawLayerRef.current = L.featureGroup().addTo(map);
+    ezLayerRef.current = L.featureGroup().addTo(map);
 
     mapInstanceRef.current = map;
 
@@ -762,11 +798,17 @@ export const TacticalMap: React.FC<TacticalMapProps> = ({
       }
     }
 
-    // 4. HQ / EZ / Vereinsbüro Marker
+  }, [currentOperation, showRadiusRings, allUsers, userLocations]);
+
+  // Render EZ / Vereinsbüro Marker (Dedicated Layer)
+  useEffect(() => {
+    if (!ezLayerRef.current) return;
+    ezLayerRef.current.clearLayers();
+
     let hqLat = VEREINSBUERO_LOCATION.lat;
     let hqLng = VEREINSBUERO_LOCATION.lng;
     let hqAddress = VEREINSBUERO_LOCATION.address;
-    let hqTitle = 'Vereinsbüro Spürhunde-Salzlandkreis e.V.';
+    let hqTitle = '🏢 EZ (Bereitschaft)';
     let isStandbyOffice = true;
 
     if (currentOperation && (currentOperation.status === 'active' || currentOperation.status === 'paused')) {
@@ -783,7 +825,7 @@ export const TacticalMap: React.FC<TacticalMapProps> = ({
         hqLng = VEREINSBUERO_LOCATION.lng;
         hqAddress = VEREINSBUERO_LOCATION.address;
       }
-      hqTitle = '🏢 EINSATZLEITUNG (EZ)';
+      hqTitle = '🏢 EZ';
     }
 
     const hqIcon = L.divIcon({
@@ -791,7 +833,7 @@ export const TacticalMap: React.FC<TacticalMapProps> = ({
       html: isStandbyOffice
         ? `
           <div class="flex items-center justify-center px-2 py-1 rounded-lg bg-indigo-950 text-indigo-200 border border-indigo-400 font-bold text-xs shadow-xl ring-2 ring-indigo-500/50 whitespace-nowrap">
-            🏢 VEREINSBÜRO (Bereitschaft)
+            🏢 EZ (Bereitschaft)
           </div>
         `
         : `
@@ -806,16 +848,49 @@ export const TacticalMap: React.FC<TacticalMapProps> = ({
       iconAnchor: isStandbyOffice ? [87, 14] : [32, 15],
     });
 
-    const hqMarker = L.marker([hqLat, hqLng], { icon: hqIcon });
+    const hqMarker = L.marker([hqLat, hqLng], {
+      icon: hqIcon,
+      zIndexOffset: 1200,
+    });
+
+    const markerNavData = {
+      lat: hqLat,
+      lng: hqLng,
+      address: hqAddress,
+      title: hqTitle,
+      isStandbyOffice,
+      operationTitle: currentOperation?.title,
+      commander: currentOperation?.commander,
+    };
+
+    // Direct click/tap on EZ on the map opens the coordinate navigation transfer modal
+    hqMarker.on('click', () => {
+      setEzNavData(markerNavData);
+    });
+
     hqMarker.bindPopup(`
-      <div class="p-2 text-slate-900 font-sans">
-        <div class="font-bold text-indigo-700 text-sm">${hqTitle}</div>
-        <div class="text-xs text-slate-700 mt-1">${hqAddress}</div>
-        ${!isStandbyOffice && currentOperation ? `<div class="text-xs text-slate-500 mt-1">Einsatz: <strong>${currentOperation.title}</strong><br/>Leitung: <strong>${currentOperation.commander}</strong></div>` : `<div class="text-[11px] text-emerald-600 font-medium mt-1">🟢 Kein aktiver Einsatz • Status: Bereitschaft am Vereinsbüro</div>`}
+      <div class="p-2.5 text-slate-900 font-sans min-w-[220px]">
+        <div class="font-bold text-indigo-700 text-sm flex items-center gap-1.5">
+          <span>${isStandbyOffice ? '🏢' : '🚨'}</span>
+          <span>${hqTitle}</span>
+        </div>
+        <div class="text-xs text-slate-700 mt-1 font-medium">${hqAddress}</div>
+        <div class="text-[10px] text-slate-500 font-mono mt-0.5">${hqLat.toFixed(5)}° N, ${hqLng.toFixed(5)}° E</div>
+        ${!isStandbyOffice && currentOperation ? `<div class="text-xs text-slate-600 mt-1.5 bg-slate-100 p-1.5 rounded">Einsatz: <strong>${currentOperation.title}</strong><br/>Leitung: <strong>${currentOperation.commander}</strong></div>` : `<div class="text-[11px] text-emerald-600 font-medium mt-1">🟢 Status: Bereitschaft am Vereinsbüro</div>`}
+        <div class="mt-2.5 pt-2 border-t border-slate-200">
+          <a
+            href="https://www.google.com/maps/dir/?api=1&destination=${hqLat},${hqLng}"
+            target="_blank"
+            rel="noopener noreferrer"
+            class="inline-flex items-center justify-center gap-1.5 w-full py-1.5 px-3 bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs rounded-lg shadow transition no-underline text-center"
+          >
+            🧭 In Navi-App öffnen
+          </a>
+        </div>
       </div>
     `);
-    plsLayerRef.current.addLayer(hqMarker);
-  }, [currentOperation, showRadiusRings, allUsers, userLocations]);
+    ezLayerRef.current.addLayer(hqMarker);
+  }, [currentOperation]);
 
   // Render Search Sectors (Suchsektoren)
   useEffect(() => {
@@ -925,7 +1000,6 @@ export const TacticalMap: React.FC<TacticalMapProps> = ({
       const handleSectorClick = () => {
         setSelectedSector(sector);
         setSelectedUser(null);
-        setIsSectorCardMinimized(false);
       };
 
       polygon.on('click', handleSectorClick);
@@ -1247,7 +1321,6 @@ export const TacticalMap: React.FC<TacticalMapProps> = ({
         marker.on('click', () => {
           setSelectedUser(item.user);
           setSelectedSector(null);
-          setIsUserCardMinimized(false);
         });
 
         respondersLayerRef.current?.addLayer(marker);
@@ -1337,19 +1410,44 @@ export const TacticalMap: React.FC<TacticalMapProps> = ({
 
   // Center on operation overview
   const handleFitBounds = () => {
-    if (!mapInstanceRef.current || !currentOperation) return;
+    if (!mapInstanceRef.current) return;
     const allPoints: [number, number][] = [];
 
-    // Collect sector points
-    currentOperation.sectors.forEach((sec) => sec.polygon.forEach((pt) => allPoints.push(pt)));
-    // Collect responder points
-    (Object.values(userLocations) as UserLocationState[]).forEach((u) => allPoints.push([u.currentPosition.lat, u.currentPosition.lng]));
-    // Collect findings
-    currentOperation.findings.forEach((f) => allPoints.push([f.location.lat, f.location.lng]));
+    if (currentOperation) {
+      if (currentOperation.searchAreaPolygon) {
+        currentOperation.searchAreaPolygon.forEach((pt) => allPoints.push(pt));
+      }
+      if (currentOperation.sectors) {
+        currentOperation.sectors.forEach((sec) => {
+          if (sec.polygon) sec.polygon.forEach((pt) => allPoints.push(pt));
+        });
+      }
+      if (currentOperation.findings) {
+        currentOperation.findings.forEach((f) => {
+          if (f.location) allPoints.push([f.location.lat, f.location.lng]);
+        });
+      }
+      if (currentOperation.missingPerson?.lastSeenLocation) {
+        allPoints.push([currentOperation.missingPerson.lastSeenLocation.lat, currentOperation.missingPerson.lastSeenLocation.lng]);
+      }
+      if (currentOperation.headquartersLocation) {
+        allPoints.push([currentOperation.headquartersLocation.lat, currentOperation.headquartersLocation.lng]);
+      }
+    }
+
+    if (userLocations) {
+      (Object.values(userLocations) as UserLocationState[]).forEach((u) => {
+        if (u?.currentPosition) {
+          allPoints.push([u.currentPosition.lat, u.currentPosition.lng]);
+        }
+      });
+    }
 
     if (allPoints.length > 0) {
       const bounds = L.latLngBounds(allPoints);
       mapInstanceRef.current.fitBounds(bounds, { padding: [40, 40] });
+    } else {
+      mapInstanceRef.current.setView([VEREINSBUERO_LOCATION.lat, VEREINSBUERO_LOCATION.lng], 13);
     }
   };
 
@@ -1544,6 +1642,29 @@ export const TacticalMap: React.FC<TacticalMapProps> = ({
           </button>
 
           <button
+            onClick={() => {
+              const isOpActive = currentOperation && (currentOperation.status === 'active' || currentOperation.status === 'paused');
+              const hq = isOpActive && currentOperation.headquartersLocation?.lat && currentOperation.headquartersLocation?.lng
+                ? currentOperation.headquartersLocation
+                : VEREINSBUERO_LOCATION;
+              setEzNavData({
+                lat: hq.lat,
+                lng: hq.lng,
+                address: hq.address || (isOpActive ? 'EZ vor Ort' : VEREINSBUERO_LOCATION.address),
+                title: isOpActive ? '🏢 EZ' : '🏢 EZ (Bereitschaft)',
+                isStandbyOffice: !isOpActive,
+                operationTitle: currentOperation?.title,
+                commander: currentOperation?.commander,
+              });
+            }}
+            className="flex items-center gap-1 px-2 py-1.5 bg-indigo-600/30 hover:bg-indigo-600 text-indigo-200 hover:text-white rounded-lg text-xs font-bold transition cursor-pointer border border-indigo-500/40 font-mono"
+            title="Navigation zur Einsatzzentrale öffnen"
+          >
+            <Compass className="w-3.5 h-3.5 text-indigo-400" />
+            <span>EZ</span>
+          </button>
+
+          <button
             onClick={() => setIsLayersOpenMobile(true)}
             className={`flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-bold transition cursor-pointer font-mono ${
               isLayersOpenMobile
@@ -1555,63 +1676,8 @@ export const TacticalMap: React.FC<TacticalMapProps> = ({
             <Layers className="w-3.5 h-3.5 text-blue-400" />
             <span>Ebenen</span>
           </button>
-
-          <button
-            onClick={() => setIsWeatherOpenMobile((v) => !v)}
-            className={`flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-bold transition cursor-pointer font-mono ${
-              isWeatherOpenMobile
-                ? 'bg-amber-600 text-white'
-                : 'bg-slate-800 text-slate-300 hover:text-white border border-slate-700'
-            }`}
-            title="Wetter & Winddrift anzeigen/ausblenden"
-          >
-            <span>⛅</span>
-            <span>Wetter</span>
-          </button>
-
-          <button
-            onClick={handleFitBounds}
-            className="p-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-lg border border-slate-700 transition cursor-pointer"
-            title="Ganzen Einsatzbereich anzeigen"
-          >
-            <Maximize2 className="w-3.5 h-3.5" />
-          </button>
         </div>
-
-        {currentUser?.role === 'admin' && !isDrawingSector && onStartFreehandDrawing && (
-          <button
-            onClick={() => onStartFreehandDrawing()}
-            className="pointer-events-auto flex items-center gap-1 px-2.5 py-1.5 bg-blue-600 hover:bg-blue-500 text-white rounded-xl font-bold shadow-xl transition cursor-pointer border border-blue-400 font-mono text-xs"
-            title="Sektor zeichnen"
-          >
-            <PenTool className="w-3.5 h-3.5" />
-            <span>Sektor 🖊️</span>
-          </button>
-        )}
       </div>
-
-      {/* MOBILE WEATHER POPUP (If toggled on smartphone) */}
-      {isWeatherOpenMobile && (
-        <div
-          className="md:hidden fixed inset-0 z-[1500] flex items-center justify-center p-3 bg-slate-950/60 backdrop-blur-sm animate-in fade-in duration-150"
-          onClick={(e) => {
-            if (e.target === e.currentTarget) setIsWeatherOpenMobile(false);
-          }}
-        >
-          <div className="w-full max-w-sm relative shadow-2xl">
-            <button
-              onClick={() => setIsWeatherOpenMobile(false)}
-              className="absolute -top-3 -right-3 z-20 h-7 w-7 rounded-full bg-slate-800 text-slate-200 hover:text-white flex items-center justify-center text-xs font-bold border border-slate-600 shadow-lg cursor-pointer"
-            >
-              ✕
-            </button>
-            <TacticalWeatherWidget
-              lat={myLocation?.lat || currentUser?.currentLocation?.lat || currentOperation?.headquartersLocation?.lat || VEREINSBUERO_LOCATION.lat}
-              lng={myLocation?.lng || currentUser?.currentLocation?.lng || currentOperation?.headquartersLocation?.lng || VEREINSBUERO_LOCATION.lng}
-            />
-          </div>
-        </div>
-      )}
 
       {/* MOBILE LAYERS MODAL SHEET (Clean drawer that doesn't permanently block map) */}
       {isLayersOpenMobile && (
@@ -1725,7 +1791,6 @@ export const TacticalMap: React.FC<TacticalMapProps> = ({
                   { id: 'osm', label: '🌲 Wald & Straße (OSM)' },
                   { id: 'hybrid', label: '🛰️ Satellit Hybrid' },
                   { id: 'satellite', label: '📡 Satellit Foto' },
-                  { id: 'dark', label: '🌙 Nachtmodus' },
                 ].map((item) => (
                   <button
                     key={item.id}
@@ -1796,18 +1861,6 @@ export const TacticalMap: React.FC<TacticalMapProps> = ({
               >
                 <Navigation className="w-3.5 h-3.5" />
                 Aktionen
-              </button>
-              <button
-                onClick={() => setDesktopSidebarTab('weather')}
-                className={`px-2 py-1 rounded-lg text-[11px] font-bold transition cursor-pointer flex items-center gap-1 ${
-                  desktopSidebarTab === 'weather'
-                    ? 'bg-blue-600 text-white shadow'
-                    : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800'
-                }`}
-                title="Live-Wetter & Winddrift"
-              >
-                <CloudSun className="w-3.5 h-3.5" />
-                Wetter
               </button>
             </div>
             <button
@@ -1897,7 +1950,6 @@ export const TacticalMap: React.FC<TacticalMapProps> = ({
                     { id: 'osm', label: 'Straße/Wald' },
                     { id: 'hybrid', label: 'Hybrid' },
                     { id: 'satellite', label: 'Satellit' },
-                    { id: 'dark', label: 'Dunkel' },
                   ].map((item) => (
                     <button
                       key={item.id}
@@ -1929,14 +1981,6 @@ export const TacticalMap: React.FC<TacticalMapProps> = ({
                   Mein GPS
                 </button>
                 <button
-                  onClick={handleFitBounds}
-                  className="flex items-center gap-1.5 px-2.5 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-semibold rounded-lg border border-slate-700 transition cursor-pointer font-mono"
-                  title="Ganzen Einsatzbereich anzeigen"
-                >
-                  <Maximize2 className="w-3.5 h-3.5" />
-                  Übersicht
-                </button>
-                <button
                   onClick={captureMapSnapshot}
                   disabled={isCapturingSnapshot}
                   className="flex items-center gap-1.5 px-2.5 py-1.5 bg-slate-800 hover:bg-slate-700 text-amber-300 text-xs font-semibold rounded-lg border border-slate-700 transition cursor-pointer font-mono disabled:opacity-50"
@@ -1953,9 +1997,31 @@ export const TacticalMap: React.FC<TacticalMapProps> = ({
                   <Trash2 className="w-3 h-3" />
                   Spur leeren
                 </button>
+                <button
+                  onClick={() => {
+                    const isOpActive = currentOperation && (currentOperation.status === 'active' || currentOperation.status === 'paused');
+                    const hq = isOpActive && currentOperation.headquartersLocation?.lat && currentOperation.headquartersLocation?.lng
+                      ? currentOperation.headquartersLocation
+                      : VEREINSBUERO_LOCATION;
+                    setEzNavData({
+                      lat: hq.lat,
+                      lng: hq.lng,
+                      address: hq.address || (isOpActive ? 'EZ vor Ort' : VEREINSBUERO_LOCATION.address),
+                      title: isOpActive ? '🏢 EZ' : '🏢 EZ (Bereitschaft)',
+                      isStandbyOffice: !isOpActive,
+                      operationTitle: currentOperation?.title,
+                      commander: currentOperation?.commander,
+                    });
+                  }}
+                  className="col-span-2 flex items-center justify-center gap-1.5 px-2.5 py-2 bg-indigo-950/70 hover:bg-indigo-900 text-indigo-200 text-xs font-bold rounded-lg border border-indigo-700/80 transition cursor-pointer font-mono"
+                  title="Navigation zur Einsatzzentrale öffnen"
+                >
+                  <Compass className="w-3.5 h-3.5 text-indigo-400" />
+                  <span>Navi zur EZ (Koordinatenübermittlung)</span>
+                </button>
               </div>
 
-              {currentUser?.role === 'admin' && !isDrawingSector && (
+              {isAdminOrEL && !isDrawingSector && (
                 <div className="pt-2 border-t border-slate-700 flex gap-1.5">
                   {onStartFreehandDrawing && (
                     <button
@@ -2006,81 +2072,36 @@ export const TacticalMap: React.FC<TacticalMapProps> = ({
               </div>
             </div>
           )}
-
-          {/* TAB 3: WEATHER */}
-          {desktopSidebarTab === 'weather' && (
-            <TacticalWeatherWidget
-              lat={myLocation?.lat || currentUser?.currentLocation?.lat || currentOperation?.headquartersLocation?.lat || VEREINSBUERO_LOCATION.lat}
-              lng={myLocation?.lng || currentUser?.currentLocation?.lng || currentOperation?.headquartersLocation?.lng || VEREINSBUERO_LOCATION.lng}
-            />
-          )}
         </div>
       )}
 
       {/* Floating Sector Details Card (When a sector is clicked) */}
       {selectedSector && (
         <div className="fixed sm:absolute bottom-24 sm:bottom-28 md:bottom-24 right-2 sm:right-6 left-2 sm:left-auto sm:w-[420px] max-w-[calc(100vw-1rem)] z-[1100] bg-[#1E293B]/95 backdrop-blur-md border border-slate-700 rounded-2xl shadow-2xl text-slate-100 flex flex-col overflow-hidden animate-in fade-in slide-in-from-bottom-4 duration-200">
-          {/* Minimized view */}
-          {isSectorCardMinimized ? (
-            <div className="flex items-center justify-between p-3 gap-2">
-              <div className="flex items-center gap-2 min-w-0">
-                <span className="text-base">
-                  {selectedSector.status === 'searched' ? '✅' : selectedSector.status === 'in_progress' ? '⏳' : '🎯'}
-                </span>
-                <span className="font-bold text-xs text-white truncate">{selectedSector.name}</span>
-                <span className="text-[10px] px-2 py-0.5 rounded font-mono font-bold bg-slate-800 text-slate-300 border border-slate-700 shrink-0">
-                  {selectedSector.status === 'searched' ? 'Abgesucht' : selectedSector.status === 'in_progress' ? 'In Suche' : 'Offen'}
-                </span>
+          <>
+            {/* Card Header */}
+            <div className="flex items-start justify-between gap-2 p-3.5 pb-2.5 border-b border-slate-700 bg-slate-900/50">
+              <div className="min-w-0">
+                <div className="flex items-center gap-2">
+                  <span className="text-lg">
+                    {selectedSector.status === 'searched' ? '✅' : selectedSector.status === 'in_progress' ? '⏳' : '🎯'}
+                  </span>
+                  <h3 className="font-bold text-sm text-slate-100 truncate">{selectedSector.name}</h3>
+                </div>
+                <p className="text-xs text-slate-400 mt-0.5 font-mono">
+                  Fläche: ca. {selectedSector.areaHectares || 25} ha • Priorität: {selectedSector.priority.toUpperCase()}
+                </p>
               </div>
-              <div className="flex items-center gap-1.5 shrink-0">
-                <button
-                  onClick={() => setIsSectorCardMinimized(false)}
-                  className="px-2.5 py-1 bg-blue-600/30 hover:bg-blue-600 text-blue-300 hover:text-white rounded-lg text-xs font-bold font-mono transition cursor-pointer border border-blue-500/40"
-                  title="Details ausklappen"
-                >
-                  ▲ Details
-                </button>
+              <div className="flex items-center gap-1 shrink-0">
                 <button
                   onClick={() => setSelectedSector(null)}
-                  className="text-slate-400 hover:text-white p-1 rounded-lg hover:bg-slate-800 transition cursor-pointer"
+                  className="text-slate-400 hover:text-white p-1 rounded hover:bg-slate-800 cursor-pointer"
                   title="Schließen"
                 >
                   ✕
                 </button>
               </div>
             </div>
-          ) : (
-            <>
-              {/* Card Header */}
-              <div className="flex items-start justify-between gap-2 p-3.5 pb-2.5 border-b border-slate-700 bg-slate-900/50">
-                <div className="min-w-0">
-                  <div className="flex items-center gap-2">
-                    <span className="text-lg">
-                      {selectedSector.status === 'searched' ? '✅' : selectedSector.status === 'in_progress' ? '⏳' : '🎯'}
-                    </span>
-                    <h3 className="font-bold text-sm text-slate-100 truncate">{selectedSector.name}</h3>
-                  </div>
-                  <p className="text-xs text-slate-400 mt-0.5 font-mono">
-                    Fläche: ca. {selectedSector.areaHectares || 25} ha • Priorität: {selectedSector.priority.toUpperCase()}
-                  </p>
-                </div>
-                <div className="flex items-center gap-1 shrink-0">
-                  <button
-                    onClick={() => setIsSectorCardMinimized(true)}
-                    className="text-slate-400 hover:text-white text-xs px-2 py-1 rounded bg-slate-800 hover:bg-slate-700 border border-slate-700 cursor-pointer font-mono"
-                    title="Karte frei machen / Fenster verkleinern"
-                  >
-                    ━ Minimieren
-                  </button>
-                  <button
-                    onClick={() => setSelectedSector(null)}
-                    className="text-slate-400 hover:text-white p-1 rounded hover:bg-slate-800 cursor-pointer"
-                    title="Schließen"
-                  >
-                    ✕
-                  </button>
-                </div>
-              </div>
 
               {/* Scrollable Body */}
               <div className="p-3.5 space-y-2.5 text-xs max-h-[min(380px,calc(100vh-280px))] overflow-y-auto scrollbar-thin">
@@ -2161,7 +2182,7 @@ export const TacticalMap: React.FC<TacticalMapProps> = ({
                   {selectedSector.status === 'searched' ? 'Status zurücksetzen' : 'Als abgesucht markieren (Grün)'}
                 </button>
 
-                {currentUser?.role === 'admin' && onOpenSectorEditor && (
+                {isAdminOrEL && onOpenSectorEditor && (
                   <button
                     onClick={() => {
                       onOpenSectorEditor(selectedSector);
@@ -2173,7 +2194,7 @@ export const TacticalMap: React.FC<TacticalMapProps> = ({
                   </button>
                 )}
 
-                {currentUser?.role === 'admin' && (
+                {isAdminOrEL && (
                   <button
                     onClick={() => {
                       if (window.confirm(`🚨 Sektor "${selectedSector.name}" wirklich endgültig löschen?`)) {
@@ -2189,73 +2210,39 @@ export const TacticalMap: React.FC<TacticalMapProps> = ({
                 )}
               </div>
             </>
-          )}
         </div>
       )}
 
       {/* Floating Tactical User / Responder Card (When a responder pin is clicked) */}
       {selectedUser && (
         <div className="fixed sm:absolute bottom-24 sm:bottom-28 md:bottom-24 right-2 sm:right-6 left-2 sm:left-auto sm:w-[420px] max-w-[calc(100vw-1rem)] z-[1100] bg-[#1E293B]/95 backdrop-blur-md border border-slate-700 rounded-2xl shadow-2xl text-slate-100 flex flex-col overflow-hidden animate-in fade-in slide-in-from-right-4 duration-200">
-          {/* Minimized view */}
-          {isUserCardMinimized ? (
-            <div className="flex items-center justify-between p-3 gap-2">
-              <div className="flex items-center gap-2 min-w-0">
-                <span className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: selectedUser.isActive ? '#10b981' : '#64748b' }}></span>
-                <span className="font-bold text-xs text-white truncate">{selectedUser.name}</span>
-                <span className="text-[10px] text-blue-400 font-mono font-bold">({selectedUser.callSign})</span>
+          <>
+            {/* Card Header */}
+            <div className="flex items-start justify-between gap-3 p-3.5 pb-2.5 border-b border-slate-700 bg-slate-900/50">
+              <div className="flex items-center gap-3 min-w-0">
+                <div className="h-10 w-10 rounded-full overflow-hidden border-2 border-blue-500 shadow-md bg-slate-800 flex items-center justify-center shrink-0">
+                  {selectedUser.photoUrl ? (
+                    <img src={selectedUser.photoUrl} alt={selectedUser.name} className="h-full w-full object-cover" />
+                  ) : (
+                    <span className="font-bold text-base text-white uppercase">{selectedUser.name.charAt(0)}</span>
+                  )}
+                </div>
+                <div className="min-w-0">
+                  <h3 className="font-bold text-sm text-white truncate">{selectedUser.name}</h3>
+                  <div className="text-xs text-blue-400 font-mono font-bold">{selectedUser.callSign}</div>
+                  <div className="text-[10px] text-slate-400 truncate">{selectedUser.organization || 'Einsatzkraft'}</div>
+                </div>
               </div>
-              <div className="flex items-center gap-1.5 shrink-0">
-                <button
-                  onClick={() => setIsUserCardMinimized(false)}
-                  className="px-2.5 py-1 bg-blue-600/30 hover:bg-blue-600 text-blue-300 hover:text-white rounded-lg text-xs font-bold font-mono transition cursor-pointer border border-blue-500/40"
-                  title="Details ausklappen"
-                >
-                  ▲ Details
-                </button>
+              <div className="flex items-center gap-1 shrink-0">
                 <button
                   onClick={() => setSelectedUser(null)}
-                  className="text-slate-400 hover:text-white p-1 rounded-lg hover:bg-slate-800 transition cursor-pointer"
+                  className="text-slate-400 hover:text-white p-1 rounded hover:bg-slate-800 cursor-pointer"
                   title="Schließen"
                 >
                   ✕
                 </button>
               </div>
             </div>
-          ) : (
-            <>
-              {/* Card Header */}
-              <div className="flex items-start justify-between gap-3 p-3.5 pb-2.5 border-b border-slate-700 bg-slate-900/50">
-                <div className="flex items-center gap-3 min-w-0">
-                  <div className="h-10 w-10 rounded-full overflow-hidden border-2 border-blue-500 shadow-md bg-slate-800 flex items-center justify-center shrink-0">
-                    {selectedUser.photoUrl ? (
-                      <img src={selectedUser.photoUrl} alt={selectedUser.name} className="h-full w-full object-cover" />
-                    ) : (
-                      <span className="font-bold text-base text-white uppercase">{selectedUser.name.charAt(0)}</span>
-                    )}
-                  </div>
-                  <div className="min-w-0">
-                    <h3 className="font-bold text-sm text-white truncate">{selectedUser.name}</h3>
-                    <div className="text-xs text-blue-400 font-mono font-bold">{selectedUser.callSign}</div>
-                    <div className="text-[10px] text-slate-400 truncate">{selectedUser.organization || 'Einsatzkraft'}</div>
-                  </div>
-                </div>
-                <div className="flex items-center gap-1 shrink-0">
-                  <button
-                    onClick={() => setIsUserCardMinimized(true)}
-                    className="text-slate-400 hover:text-white text-xs px-2 py-1 rounded bg-slate-800 hover:bg-slate-700 border border-slate-700 cursor-pointer font-mono"
-                    title="Karte frei machen / Fenster verkleinern"
-                  >
-                    ━ Minimieren
-                  </button>
-                  <button
-                    onClick={() => setSelectedUser(null)}
-                    className="text-slate-400 hover:text-white p-1 rounded hover:bg-slate-800 cursor-pointer"
-                    title="Schließen"
-                  >
-                    ✕
-                  </button>
-                </div>
-              </div>
 
               {/* Scrollable Body */}
               <div className="p-3.5 space-y-2.5 text-xs max-h-[min(380px,calc(100vh-280px))] overflow-y-auto scrollbar-thin">
@@ -2310,7 +2297,6 @@ export const TacticalMap: React.FC<TacticalMapProps> = ({
                           key={u.id}
                           onClick={() => {
                             setSelectedUser(u);
-                            setIsUserCardMinimized(false);
                           }}
                           className="px-2 py-1 bg-slate-800 hover:bg-blue-900/60 hover:border-blue-400 text-slate-200 border border-slate-700 rounded-lg text-[10px] font-mono font-bold transition flex items-center gap-1.5 cursor-pointer shadow-sm"
                         >
@@ -2349,7 +2335,220 @@ export const TacticalMap: React.FC<TacticalMapProps> = ({
                 )}
               </div>
             </>
-          )}
+        </div>
+      )}
+
+      {/* EZ COORDINATES & NAVIGATION MODAL (Interactive Intent to Navigation Apps) */}
+      {ezNavData && (
+        <div
+          className="fixed inset-0 z-[5000] flex items-center justify-center p-3 sm:p-4 bg-slate-950/80 backdrop-blur-md animate-in fade-in duration-150 font-sans"
+          onClick={(e) => {
+            if (e.target === e.currentTarget) setEzNavData(null);
+          }}
+        >
+          <div className="bg-[#1E293B] border border-indigo-500/50 rounded-2xl max-w-lg w-full shadow-2xl overflow-hidden flex flex-col text-slate-100 animate-in zoom-in-95 duration-150">
+            {/* Modal Header */}
+            <div className="p-4 bg-gradient-to-r from-indigo-950/90 via-slate-900 to-indigo-950/90 border-b border-indigo-500/30 flex items-center justify-between">
+              <div className="flex items-center gap-2.5 min-w-0">
+                <div className="w-10 h-10 rounded-xl bg-indigo-600/30 border border-indigo-400/50 text-indigo-300 flex items-center justify-center text-xl shrink-0 shadow-inner">
+                  🧭
+                </div>
+                <div className="min-w-0">
+                  <div className="flex items-center gap-2">
+                    <h3 className="font-bold text-white text-sm sm:text-base uppercase tracking-wide truncate">
+                      Navigation zur Einsatzzentrale
+                    </h3>
+                  </div>
+                  <div className="text-[11px] text-indigo-300 font-mono flex items-center gap-1.5 truncate">
+                    <span>{ezNavData.isStandbyOffice ? '🏢 Vereinsbüro Aschersleben (Bereitschaft)' : '🚨 Einsatz-EZ vor Ort'}</span>
+                  </div>
+                </div>
+              </div>
+              <button
+                onClick={() => setEzNavData(null)}
+                className="w-8 h-8 rounded-lg bg-slate-800/80 hover:bg-slate-700 text-slate-400 hover:text-white flex items-center justify-center transition cursor-pointer border border-slate-700 shrink-0"
+                title="Schließen"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            {/* Modal Body */}
+            <div className="p-4 sm:p-5 space-y-4 text-xs overflow-y-auto max-h-[75vh]">
+              {/* Target Location Card */}
+              <div className="bg-slate-900/90 border border-indigo-500/30 rounded-xl p-3.5 space-y-2">
+                <div className="flex items-center justify-between">
+                  <span className="text-[10px] uppercase tracking-wider font-mono font-bold text-slate-400">
+                    Zielort & Adresse
+                  </span>
+                  <span className={`text-[10px] font-mono font-bold px-2 py-0.5 rounded-full border ${
+                    ezNavData.isStandbyOffice
+                      ? 'bg-emerald-950/70 text-emerald-300 border-emerald-600/50'
+                      : 'bg-indigo-950/70 text-indigo-300 border-indigo-500/50'
+                  }`}>
+                    {ezNavData.isStandbyOffice ? 'Standard-Büro' : 'Einsatz-Standort'}
+                  </span>
+                </div>
+
+                <div className="font-bold text-sm sm:text-base text-white leading-snug">
+                  {ezNavData.address}
+                </div>
+
+                {ezNavData.operationTitle && !ezNavData.isStandbyOffice && (
+                  <div className="text-[11px] text-slate-300 bg-slate-800/60 p-2 rounded-lg border border-slate-700/60">
+                    Einsatz: <strong className="text-white">{ezNavData.operationTitle}</strong>
+                    {ezNavData.commander && <> • Leitung: <strong className="text-white">{ezNavData.commander}</strong></>}
+                  </div>
+                )}
+
+                {/* GPS Coordinates & Live Distance */}
+                <div className="pt-2 border-t border-slate-800 grid grid-cols-1 sm:grid-cols-2 gap-2 text-[11px] font-mono">
+                  <div className="bg-slate-950/60 p-2 rounded-lg border border-slate-800 flex items-center justify-between">
+                    <div>
+                      <span className="text-slate-400 block text-[9px]">GPS-KOORDINATEN</span>
+                      <span className="text-slate-200 font-bold">
+                        {ezNavData.lat.toFixed(6)}, {ezNavData.lng.toFixed(6)}
+                      </span>
+                    </div>
+                    <button
+                      onClick={() => handleCopyCoordinates(ezNavData.lat, ezNavData.lng)}
+                      className="px-2 py-1 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded border border-slate-700 transition cursor-pointer text-[10px] flex items-center gap-1 shrink-0"
+                      title="Koordinaten in Zwischenablage kopieren"
+                    >
+                      {copiedCoords ? (
+                        <>
+                          <Check className="w-3 h-3 text-emerald-400" />
+                          <span className="text-emerald-400 font-bold">Kopiert</span>
+                        </>
+                      ) : (
+                        <>
+                          <Copy className="w-3 h-3" />
+                          <span>Kopieren</span>
+                        </>
+                      )}
+                    </button>
+                  </div>
+
+                  <div className="bg-slate-950/60 p-2 rounded-lg border border-slate-800">
+                    <span className="text-slate-400 block text-[9px]">ENTFERNUNG (MEIN STANDORT)</span>
+                    {myLocation ? (
+                      (() => {
+                        const R = 6371e3;
+                        const φ1 = (myLocation.lat * Math.PI) / 180;
+                        const φ2 = (ezNavData.lat * Math.PI) / 180;
+                        const Δφ = ((ezNavData.lat - myLocation.lat) * Math.PI) / 180;
+                        const Δλ = ((ezNavData.lng - myLocation.lng) * Math.PI) / 180;
+                        const a =
+                          Math.sin(Δφ / 2) * Math.sin(Δφ / 2) +
+                          Math.cos(φ1) * Math.cos(φ2) * Math.sin(Δλ / 2) * Math.sin(Δλ / 2);
+                        const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+                        const d = R * c;
+                        const dText = d >= 1000 ? `${(d / 1000).toFixed(1)} km` : `${Math.round(d)} m`;
+                        const isReached = d <= 500;
+                        return (
+                          <div className="flex items-center gap-1.5">
+                            <span className="text-white font-bold">{dText}</span>
+                            <span className={`text-[9px] px-1.5 py-0.2 rounded font-bold ${
+                              isReached ? 'bg-emerald-900/60 text-emerald-300 border border-emerald-600' : 'bg-blue-900/60 text-blue-300 border border-blue-600'
+                            }`}>
+                              {isReached ? '✅ EZ erreicht' : '🚗 In Anfahrt'}
+                            </span>
+                          </div>
+                        );
+                      })()
+                    ) : (
+                      <span className="text-slate-400">GPS nicht aktiv</span>
+                    )}
+                  </div>
+                </div>
+              </div>
+
+              {/* Primary Action Button (Universal Mobile / OS Navi Launch) */}
+              <div>
+                <button
+                  onClick={() => handleOpenNavigation(ezNavData.lat, ezNavData.lng, ezNavData.title)}
+                  className="w-full py-3 px-4 rounded-xl bg-gradient-to-r from-blue-600 via-indigo-600 to-blue-600 hover:from-blue-500 hover:to-indigo-500 text-white font-bold text-sm shadow-xl transition cursor-pointer flex items-center justify-center gap-2 border border-blue-400/50 uppercase tracking-wide font-mono"
+                >
+                  <span>🚗</span>
+                  <span>In Standard-Navi-App öffnen</span>
+                  <ExternalLink className="w-4 h-4 ml-1" />
+                </button>
+                <p className="text-[10px] text-slate-400 text-center mt-1 font-mono">
+                  Startet automatisch Ihre Standard-Navigations-App (Google Maps, Apple Maps, Waze etc.)
+                </p>
+              </div>
+
+              {/* Dedicated App Shortcuts */}
+              <div className="space-y-1.5 pt-1">
+                <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider font-mono block">
+                  Oder App direkt auswählen:
+                </span>
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                  <a
+                    href={`https://www.google.com/maps/dir/?api=1&destination=${ezNavData.lat},${ezNavData.lng}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="p-2.5 rounded-xl bg-slate-900/90 hover:bg-slate-800 border border-slate-700/80 hover:border-blue-500/60 transition cursor-pointer text-slate-200 hover:text-white flex items-center gap-2 text-xs font-mono font-bold no-underline"
+                  >
+                    <span className="text-lg">🗺️</span>
+                    <div>
+                      <div>Google Maps</div>
+                      <div className="text-[9px] text-slate-400 font-normal">Route starten</div>
+                    </div>
+                  </a>
+
+                  <a
+                    href={`https://maps.apple.com/?daddr=${ezNavData.lat},${ezNavData.lng}&q=${encodeURIComponent(ezNavData.title)}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="p-2.5 rounded-xl bg-slate-900/90 hover:bg-slate-800 border border-slate-700/80 hover:border-blue-500/60 transition cursor-pointer text-slate-200 hover:text-white flex items-center gap-2 text-xs font-mono font-bold no-underline"
+                  >
+                    <span className="text-lg">🍏</span>
+                    <div>
+                      <div>Apple Maps</div>
+                      <div className="text-[9px] text-slate-400 font-normal">Karten-App</div>
+                    </div>
+                  </a>
+
+                  <a
+                    href={`https://waze.com/ul?ll=${ezNavData.lat},${ezNavData.lng}&navigate=yes`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="p-2.5 rounded-xl bg-slate-900/90 hover:bg-slate-800 border border-slate-700/80 hover:border-blue-500/60 transition cursor-pointer text-slate-200 hover:text-white flex items-center gap-2 text-xs font-mono font-bold no-underline"
+                  >
+                    <span className="text-lg">🚙</span>
+                    <div>
+                      <div>Waze</div>
+                      <div className="text-[9px] text-slate-400 font-normal">Echtzeit-Verkehr</div>
+                    </div>
+                  </a>
+                </div>
+              </div>
+            </div>
+
+            {/* Modal Footer */}
+            <div className="p-3 sm:p-4 bg-slate-900/80 border-t border-slate-700/80 flex items-center justify-between gap-2">
+              <button
+                onClick={() => {
+                  if (mapInstanceRef.current && ezNavData) {
+                    mapInstanceRef.current.setView([ezNavData.lat, ezNavData.lng], 16);
+                    setEzNavData(null);
+                  }
+                }}
+                className="px-3 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white rounded-xl text-xs font-mono font-semibold transition cursor-pointer border border-slate-700 flex items-center gap-1.5"
+              >
+                <MapPin className="w-3.5 h-3.5 text-indigo-400" />
+                <span>Auf Karte zentrieren</span>
+              </button>
+
+              <button
+                onClick={() => setEzNavData(null)}
+                className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-xl text-xs font-mono font-bold transition cursor-pointer border border-slate-700 uppercase"
+              >
+                Schließen
+              </button>
+            </div>
+          </div>
         </div>
       )}
     </div>

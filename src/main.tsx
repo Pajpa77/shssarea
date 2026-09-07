@@ -1,40 +1,35 @@
-import {StrictMode} from 'react';
-import {createRoot} from 'react-dom/client';
+import { StrictMode } from 'react';
+import { createRoot } from 'react-dom/client';
 import App from './App.tsx';
+import { ErrorBoundary } from './components/ErrorBoundary.tsx';
 import './index.css';
+import 'leaflet/dist/leaflet.css';
 
-// Suppress benign Vite websocket / HMR errors that occur when HMR is disabled in container proxy environments
-if (typeof window !== 'undefined') {
-  const isViteBenign = (arg: unknown): boolean => {
-    if (!arg) return false;
-    const str = typeof arg === 'string' ? arg : (arg as { message?: string }).message || String(arg);
-    return (
-      str.includes("reading 'send'") ||
-      str.includes('failed to connect to websocket') ||
-      str.includes('WebSocket closed without opened') ||
-      str.includes('vite:ws')
-    );
-  };
+try {
+  const rootElement = document.getElementById('root');
+  if (!rootElement) {
+    throw new Error('Root element #root not found in DOM');
+  }
 
-  const originalError = console.error;
-  console.error = (...args) => {
-    if (args.some(isViteBenign)) {
-      return;
-    }
-    originalError.apply(console, args);
-  };
-
-  const originalWarn = console.warn;
-  console.warn = (...args) => {
-    if (args.some(isViteBenign)) {
-      return;
-    }
-    originalWarn.apply(console, args);
-  };
+  const root = createRoot(rootElement);
+  root.render(
+    <StrictMode>
+      <ErrorBoundary>
+        <App />
+      </ErrorBoundary>
+    </StrictMode>
+  );
+} catch (error: any) {
+  console.error('CRITICAL STARTUP ERROR:', error);
+  const rootElement = document.getElementById('root');
+  if (rootElement) {
+    rootElement.innerHTML = `
+      <div style="padding: 24px; background: #1e293b; color: #f87171; font-family: monospace; border: 2px solid #ef4444; border-radius: 12px; margin: 20px;">
+        <h2 style="color: #ef4444; margin-top: 0;">⚠️ Initialisierungsfehler</h2>
+        <p>${error?.message || String(error)}</p>
+        <button onclick="window.location.reload()" style="background: #3b82f6; color: white; border: none; padding: 8px 16px; border-radius: 6px; cursor: pointer; font-weight: bold; margin-top: 12px;">Neu laden</button>
+      </div>
+    `;
+  }
 }
 
-createRoot(document.getElementById('root')!).render(
-  <StrictMode>
-    <App />
-  </StrictMode>,
-);

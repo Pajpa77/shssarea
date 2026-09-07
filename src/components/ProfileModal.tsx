@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useRescue } from '../context/RescueContext';
-import { EquipmentType } from '../types';
+import { EquipmentType, isFirstAdmin } from '../types';
 import { compressImageFile } from '../lib/imageUtils';
 import {
   User,
@@ -213,9 +213,19 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({ isOpen, onClose }) =
               <User className="w-5 h-5" />
             </div>
             <div>
-              <h2 className="text-sm font-bold text-white uppercase tracking-wide">Mein Einsatzprofil & Daten</h2>
+              <div className="flex items-center gap-2">
+                <h2 className="text-sm font-bold text-white uppercase tracking-wide">Mein Einsatzprofil & Daten</h2>
+                {isFirstAdmin(currentUser) && (
+                  <span className="px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-300 border border-amber-500/40 text-[10px] font-mono font-bold flex items-center gap-1">
+                    <span>👑</span>
+                    <span>First Admin / App-Owner</span>
+                  </span>
+                )}
+              </div>
               <p className="text-xs text-slate-400 font-mono">
-                Diese Angaben werden auf der Lagekarte für die Einsatzleitung angezeigt
+                {isFirstAdmin(currentUser)
+                  ? 'Du bist der unantastbare App-Owner. Nur du kannst dein eigenes Profil und deine Rechte ändern.'
+                  : 'Diese Angaben werden auf der Lagekarte für die Einsatzleitung angezeigt'}
               </p>
             </div>
           </div>

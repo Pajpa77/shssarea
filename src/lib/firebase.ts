@@ -183,6 +183,11 @@ export function serializeUserForFirestore(user: User): Record<string, any> {
     batteryCharging: Boolean(user.batteryCharging),
     lastSeen: user.lastSeen || 'Online',
     activeSessionId: user.activeSessionId || '',
+    lastHeartbeat: user.lastHeartbeat || 0,
+    isAdmin: Boolean(user.isAdmin || user.role === 'admin' || user.isFirstAdmin),
+    canLeadOperations: Boolean(user.canLeadOperations || user.role === 'einsatzleitung' || user.role === 'admin' || user.isFirstAdmin),
+    isFirstAdmin: Boolean(user.isFirstAdmin || user.id === 'user-maria' || (user.username?.toLowerCase() === 'maria' && user.id === 'user-maria')),
+    isOwner: Boolean(user.isOwner || user.id === 'user-maria' || (user.username?.toLowerCase() === 'maria' && user.id === 'user-maria')),
     arrivalStatus: user.arrivalStatus || '',
     updatedAt: new Date().toISOString(),
   };
@@ -190,12 +195,21 @@ export function serializeUserForFirestore(user: User): Record<string, any> {
 }
 
 export function deserializeUserFromFirestore(data: any): User {
+  const uname = (data.username || '').toLowerCase();
+  const rname = (data.name || '').toLowerCase();
+  const isMaria = data.id === 'user-maria' || 
+                  ((uname === 'maria' || rname === 'maria') && (data.id === 'user-maria' || (data.id && data.id.startsWith('user-maria-'))));
+  
   return {
     id: data.id,
     username: data.username || '',
     password: data.password || 'sucher123',
     name: data.name || '',
-    role: data.role || 'responder',
+    role: isMaria ? 'admin' : (data.role || 'responder'),
+    isAdmin: isMaria ? true : (data.isAdmin !== undefined ? Boolean(data.isAdmin) : data.role === 'admin'),
+    canLeadOperations: isMaria ? true : (data.canLeadOperations !== undefined ? Boolean(data.canLeadOperations) : (data.role === 'einsatzleitung' || data.role === 'admin')),
+    isFirstAdmin: isMaria,
+    isOwner: isMaria,
     callSign: data.callSign || '',
     licensePlate: data.licensePlate || '',
     photoUrl: data.photoUrl || '',
@@ -210,6 +224,7 @@ export function deserializeUserFromFirestore(data: any): User {
     batteryCharging: Boolean(data.batteryCharging),
     lastSeen: data.lastSeen || 'Online',
     activeSessionId: data.activeSessionId || undefined,
+    lastHeartbeat: data.lastHeartbeat !== undefined ? Number(data.lastHeartbeat) : undefined,
     arrivalStatus: data.arrivalStatus || undefined,
     updatedAt: data.updatedAt || undefined,
   };

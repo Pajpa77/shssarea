@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { useRescue } from '../context/RescueContext';
-import { User, EquipmentType, SearchTeam } from '../types';
+import { User, EquipmentType, SearchTeam, isFirstAdmin, isOwner } from '../types';
 import {
   Users,
   Shield,
@@ -93,15 +93,29 @@ export const ResponderList: React.FC<ResponderListProps> = ({
     return allUsers;
   }, [allUsers, currentOperation]);
 
-  const isAdmin = currentUser?.role === 'admin' || currentUser?.role === 'einsatzleitung';
+  const isRealAdmin = currentUser?.role === 'admin' || Boolean(currentUser?.isAdmin);
+  const canLead = currentUser?.role === 'einsatzleitung' || Boolean(currentUser?.canLeadOperations) || isRealAdmin;
   const observerUsers = currentOperationUsers.filter((u) => u.role === 'observer');
   const teams: SearchTeam[] = currentOperation?.teams || [];
   const sectors = currentOperation?.sectors || [];
 
   const handleToggleAdminRole = (targetUser: User) => {
-    if (!isAdmin || targetUser.id === currentUser?.id) return;
-    const newRole = targetUser.role === 'admin' ? 'responder' : 'admin';
-    updateUser(targetUser.id, { role: newRole });
+    if (!isRealAdmin || targetUser.id === currentUser?.id) return;
+    if (isFirstAdmin(targetUser)) {
+      alert('Der First-Admin Account von Maria (App-Owner) ist unantastbar und kann nicht geändert werden.');
+      return;
+    }
+    if (targetUser.role === 'einsatzleitung') {
+      // Toggle admin capability for einsatzleitung
+      const nextIsAdmin = !targetUser.isAdmin;
+      updateUser(targetUser.id, { isAdmin: nextIsAdmin });
+    } else if (targetUser.role === 'admin') {
+      // Change from pure Admin to Einsatzleitung without Admin
+      updateUser(targetUser.id, { role: 'einsatzleitung', isAdmin: false, canLeadOperations: true });
+    } else {
+      // Promote responder to Einsatzleitung
+      updateUser(targetUser.id, { role: 'einsatzleitung', isAdmin: false, canLeadOperations: true });
+    }
   };
 
   const filteredUsers = currentOperationUsers
@@ -150,7 +164,7 @@ export const ResponderList: React.FC<ResponderListProps> = ({
             <span>🐕‍🦺</span> Suchtrupps bilden & zuteilen ({teams.length})
           </button>
 
-          {isAdmin && (
+          {isRealAdmin && (
             <>
               <button
                 onClick={onOpenCreateUser}
@@ -173,9 +187,26 @@ export const ResponderList: React.FC<ResponderListProps> = ({
               <h2 className="font-bold text-white text-sm sm:text-base uppercase tracking-wider">
                 EZ & Einsatzkräfte-Bereitschaftsmonitor (Ankunftskontrolle)
               </h2>
-              <p className="text-xs text-slate-400 font-mono">
-                EZ-Zentrale: {(currentOperation && (currentOperation.status === 'active' || currentOperation.status === 'paused') && currentOperation.headquartersLocation?.address) ? currentOperation.headquartersLocation.address : 'Vereinsbüro Hohe Straße 15, Aschersleben'} • 0,5 km Radius
-              </p>
+              <div className="text-xs text-slate-400 font-mono flex flex-wrap items-center gap-x-2 gap-y-1">
+                <span>
+                  EZ: {(currentOperation && (currentOperation.status === 'active' || currentOperation.status === 'paused') && currentOperation.headquartersLocation?.address) ? currentOperation.headquartersLocation.address : 'Vereinsbüro Hohe Straße 15, Aschersleben'}
+                </span>
+                <span className="text-slate-500">•</span>
+                <span>0,5 km Radius</span>
+                <a
+                  href={`https://www.google.com/maps/dir/?api=1&destination=${
+                    (currentOperation && (currentOperation.status === 'active' || currentOperation.status === 'paused') && currentOperation.headquartersLocation?.lat)
+                      ? `${currentOperation.headquartersLocation.lat},${currentOperation.headquartersLocation.lng}`
+                      : '51.7587,11.4589'
+                  }`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex items-center gap-1 text-[11px] text-blue-400 hover:text-blue-300 underline font-bold"
+                  title="Route zur EZ in Google Maps / Navi-App öffnen"
+                >
+                  🧭 Route zur EZ
+                </a>
+              </div>
             </div>
           </div>
           <span className="text-xs font-mono px-3 py-1 bg-slate-800 text-slate-300 rounded-lg border border-slate-700">
@@ -189,7 +220,7 @@ export const ResponderList: React.FC<ResponderListProps> = ({
             .map((user) => {
               const status = getUserArrivalStatus(user.id);
               const loc = userLocations[user.id]?.currentPosition;
-              const distMeters = loc && currentOperation?.headquartersLocation ? calculateDistanceToEzMeters(loc.lat, loc.lng) : null;
+              const distMeters = loc ? calculateDistanceToEzMeters(loc.lat, loc.lng) : null;
               const distText = distMeters !== null ? (distMeters >= 1000 ? `${(distMeters / 1000).toFixed(1)} km` : `${Math.round(distMeters)} m`) : 'Kein GPS';
 
               let statusBadge = { label: 'In Anfahrt', color: 'bg-red-500/20 text-red-300 border-red-500/50', icon: '🔴' };
@@ -227,7 +258,7 @@ export const ResponderList: React.FC<ResponderListProps> = ({
                     <span className="font-bold text-white">{distText}</span>
                   </div>
 
-                  {isAdmin && status !== 'ready' && (
+                  {canLead && status !== 'ready' && (
                     <button
                       type="button"
                       onClick={() => confirmUserReady(user.id)}
@@ -443,17 +474,41 @@ export const ResponderList: React.FC<ResponderListProps> = ({
                     </div>
                   </div>
 
-                  <span
-                    className={`text-[10px] font-mono px-2 py-0.5 rounded font-bold uppercase border ${
-                      user.role === 'admin' || user.role === 'einsatzleitung'
-                        ? 'bg-red-500/20 text-red-300 border-red-500'
-                        : user.role === 'group_leader'
-                        ? 'bg-amber-500/20 text-amber-300 border-amber-500'
-                        : 'bg-slate-800 text-slate-300 border-slate-700'
-                    }`}
-                  >
-                    {user.role === 'admin' ? '🛡️ Admin' : user.role === 'einsatzleitung' ? '📋 EL' : user.role === 'group_leader' ? '🎖️ Führer' : '🦺 Sucher'}
-                  </span>
+                  <div className="flex flex-col items-end gap-1">
+                    {isFirstAdmin(user) ? (
+                      <span className="text-[10px] font-mono px-2 py-0.5 rounded font-bold uppercase border bg-amber-500/25 text-amber-300 border-amber-400/80 flex items-center gap-1 shadow-sm">
+                        <span>👑</span>
+                        <span>First Admin (Owner)</span>
+                      </span>
+                    ) : (
+                      <span
+                        className={`text-[10px] font-mono px-2 py-0.5 rounded font-bold uppercase border ${
+                          user.role === 'admin'
+                            ? 'bg-red-500/20 text-red-300 border-red-500'
+                            : user.role === 'einsatzleitung'
+                            ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500'
+                            : user.role === 'observer'
+                            ? 'bg-purple-500/20 text-purple-300 border-purple-500'
+                            : 'bg-blue-500/20 text-blue-300 border-blue-500'
+                        }`}
+                      >
+                        {user.role === 'admin'
+                          ? '🛡️ Admin'
+                          : user.role === 'einsatzleitung'
+                          ? user.isAdmin
+                            ? '📋 EL & Admin'
+                            : '📋 EL'
+                          : user.role === 'observer'
+                          ? '👁️ Betrachter'
+                          : '🦺 Sucher'}
+                      </span>
+                    )}
+                    {!isFirstAdmin(user) && user.role === 'einsatzleitung' && user.isAdmin && (
+                      <span className="text-[8px] font-mono px-1 py-0.2 rounded bg-amber-500/20 text-amber-300 border border-amber-500/40 font-bold">
+                        👑 +Admin
+                      </span>
+                    )}
+                  </div>
                 </div>
 
                 {/* Details Grid */}
@@ -560,45 +615,67 @@ export const ResponderList: React.FC<ResponderListProps> = ({
                   )}
                 </div>
 
-                {isAdmin && user.id !== currentUser.id && (
+                {(isRealAdmin || canLead) && user.id !== currentUser.id && (
                   <div className="flex gap-1">
-                    <button
-                      onClick={() => handleToggleAdminRole(user)}
-                      className={`p-2 rounded-lg border transition cursor-pointer ${
-                        user.role === 'admin'
-                          ? 'bg-red-950/60 hover:bg-red-900/80 text-red-300 border-red-800/80'
-                          : 'bg-slate-800 hover:bg-amber-950/60 text-slate-300 hover:text-amber-300 border-slate-700'
-                      }`}
-                      title={user.role === 'admin' ? 'Admin-Rechte entziehen' : 'Zum Administrator ernennen'}
-                    >
-                      <Shield className="w-4 h-4" />
-                    </button>
-                    {(currentOperation?.participantIds?.includes(user.id) || user.isActive) ? (
-                      <button
-                        onClick={() => {
-                          if (confirm(`${user.name} (${user.callSign}) wirklich aus dem aktuellen Einsatz abmelden?`)) {
-                            removeUserFromOperation(user.id);
-                          }
-                        }}
-                        className="p-2 rounded-lg bg-amber-950/60 hover:bg-amber-900/80 text-amber-300 border border-amber-800/80 transition cursor-pointer"
-                        title="Aus dem aktuellen Einsatz abmelden"
+                    {isFirstAdmin(user) ? (
+                      <div
+                        className="px-2 py-1.5 rounded-lg bg-amber-950/60 text-amber-300 border border-amber-500/60 font-mono text-[10px] flex items-center gap-1 font-bold select-none cursor-default"
+                        title="First Admin & App-Owner (unantastbar)"
                       >
-                        <LogOut className="w-4 h-4" />
-                      </button>
+                        <span>👑</span>
+                        <span>Owner</span>
+                      </div>
                     ) : (
-                      <button
-                        onClick={() => {
-                          setUserActiveStatus(user.id, true);
-                          if (currentOperation) {
-                            const updated = Array.from(new Set([...(currentOperation.participantIds || []), user.id]));
-                            updateOperation(currentOperation.id, { participantIds: updated });
-                          }
-                        }}
-                        className="p-2 rounded-lg bg-emerald-950/60 hover:bg-emerald-900/80 text-emerald-300 border border-emerald-800/80 transition cursor-pointer"
-                        title="In den aktuellen Einsatz aufnehmen"
-                      >
-                        <UserCheck className="w-4 h-4" />
-                      </button>
+                      <>
+                        {isRealAdmin && (
+                          <button
+                            onClick={() => handleToggleAdminRole(user)}
+                            className={`p-2 rounded-lg border transition cursor-pointer ${
+                              user.role === 'admin'
+                                ? 'bg-red-950/60 hover:bg-red-900/80 text-red-300 border-red-800/80'
+                                : user.isAdmin
+                                ? 'bg-amber-950/60 hover:bg-amber-900/80 text-amber-300 border-amber-800/80'
+                                : 'bg-slate-800 hover:bg-amber-950/60 text-slate-300 hover:text-amber-300 border-slate-700'
+                            }`}
+                            title={
+                              user.role === 'admin'
+                                ? 'Admin-Rechte entfernen (zu Einsatzleitung machen)'
+                                : user.isAdmin
+                                ? 'Admin-Rechte entziehen (nur Einsatzleitung belassen)'
+                                : 'Zum Administrator / Einsatzleitung befördern'
+                            }
+                          >
+                            <Shield className="w-4 h-4" />
+                          </button>
+                        )}
+                        {(currentOperation?.participantIds?.includes(user.id) || user.isActive) ? (
+                          <button
+                            onClick={() => {
+                              if (confirm(`${user.name} (${user.callSign}) wirklich aus dem aktuellen Einsatz abmelden?`)) {
+                                removeUserFromOperation(user.id);
+                              }
+                            }}
+                            className="p-2 rounded-lg bg-amber-950/60 hover:bg-amber-900/80 text-amber-300 border border-amber-800/80 transition cursor-pointer"
+                            title="Aus dem aktuellen Einsatz abmelden"
+                          >
+                            <LogOut className="w-4 h-4" />
+                          </button>
+                        ) : (
+                          <button
+                            onClick={() => {
+                              setUserActiveStatus(user.id, true);
+                              if (currentOperation) {
+                                const updated = Array.from(new Set([...(currentOperation.participantIds || []), user.id]));
+                                updateOperation(currentOperation.id, { participantIds: updated });
+                              }
+                            }}
+                            className="p-2 rounded-lg bg-emerald-950/60 hover:bg-emerald-900/80 text-emerald-300 border border-emerald-800/80 transition cursor-pointer"
+                            title="In den aktuellen Einsatz aufnehmen"
+                          >
+                            <UserCheck className="w-4 h-4" />
+                          </button>
+                        )}
+                      </>
                     )}
                   </div>
                 )}

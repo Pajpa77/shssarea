@@ -16,6 +16,8 @@ import {
   OperationLogEntry,
   ArchivedSearchTrack,
   TrackingTestSession,
+  isFirstAdmin,
+  isOwner,
 } from '../types';
 import {
   INITIAL_USERS,
@@ -221,6 +223,8 @@ const STORAGE_KEY_CHAT = 'rescue_app_chat_slk_v4';
 const STORAGE_KEY_LAST_READ_CHAT = 'rescue_app_last_read_chat_slk_v4';
 
 export const RescueProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+  // @ts-ignore
+  if (window.logToScreen) window.logToScreen('RescueProvider: Component initializing...');
   // Clear any legacy test data from previous versions
   useEffect(() => {
     try {
@@ -241,45 +245,95 @@ export const RescueProvider: React.FC<{ children: React.ReactNode }> = ({ childr
 
   // 1. Local State with fallbacks
   const [allUsers, setAllUsers] = useState<User[]>(() => {
+    // @ts-ignore
+    if (window.logToScreen) window.logToScreen('RescueProvider: allUsers init started');
     try {
       const saved = localStorage.getItem(STORAGE_KEY_USERS);
       let list: User[] = [];
       if (saved) {
-        const parsed = JSON.parse(saved);
-        if (Array.isArray(parsed) && parsed.length > 0) {
-          list = parsed;
+        try {
+          const parsed = JSON.parse(saved);
+          if (Array.isArray(parsed)) {
+            // Robust filter to prevent null/undefined elements or corrupted objects
+            list = parsed.filter((u) => u && typeof u === 'object' && typeof u.id === 'string');
+          }
+        } catch (jsonErr) {
+          console.error('Error parsing saved users JSON:', jsonErr);
         }
       }
+      
       if (list.length === 0) {
-        list = INITIAL_USERS;
+        list = [...INITIAL_USERS];
       } else {
         const existingIds = new Set(list.map((u: User) => u.id));
-        const missing = INITIAL_USERS.filter((u) => !existingIds.has(u.id));
+        const missing = INITIAL_USERS.filter((u) => u && u.id && !existingIds.has(u.id));
         if (missing.length > 0) {
           list = [...list, ...missing];
         }
       }
+
       // Re-apply any individually backed-up profiles (photo, info)
       list = list.map((u) => {
+        if (!u || !u.id) return u;
         try {
           const profileBackup = localStorage.getItem(`rescuetrack_user_profile_${u.id}`);
           if (profileBackup) {
             const parsedProfile = JSON.parse(profileBackup);
-            return { ...u, ...parsedProfile };
+            if (parsedProfile && typeof parsedProfile === 'object') {
+              return { ...u, ...parsedProfile };
+            }
           }
         } catch {
           // ignore
         }
         return u;
       });
+
       const savedCurrUser = localStorage.getItem(STORAGE_KEY_CURRENT_USER);
-      list = list.map((u) => ({
-        ...u,
-        isActive: savedCurrUser ? u.id === savedCurrUser : false,
-      }));
+      list = list.map((u) => {
+        if (!u || !u.id) return u;
+        
+        const uname = (u.username || '').toLowerCase();
+        const rname = (u.name || '').toLowerCase();
+
+        // Enforce Maria as First-Admin / Owner
+        const isMaria = u.id === 'user-maria' || uname === 'maria' || rname === 'maria';
+        
+        // Enforce Jens as Admin (requested in earlier context)
+        const isJens = u.id === 'user-jens' || uname === 'jens' || rname === 'jens';
+
+        if (isMaria) {
+          return {
+            ...u,
+            role: 'admin' as const,
+            isAdmin: true,
+            isFirstAdmin: true,
+            isOwner: true,
+            canLeadOperations: true,
+            isActive: savedCurrUser ? u.id === savedCurrUser : u.isActive,
+          };
+        }
+
+        if (isJens) {
+          return {
+            ...u,
+            role: 'admin' as const,
+            isAdmin: true,
+            isActive: savedCurrUser ? u.id === savedCurrUser : u.isActive,
+          };
+        }
+
+        return {
+          ...u,
+          isActive: savedCurrUser ? u.id === savedCurrUser : u.isActive,
+        };
+      });
+      // @ts-ignore
+      if (window.logToScreen) window.logToScreen(`RescueProvider: allUsers init done (${list.length} users)`);
       return list;
-    } catch {
-      return INITIAL_USERS;
+    } catch (err) {
+      console.error('CRITICAL: Error initializing allUsers state:', err);
+      return [...INITIAL_USERS];
     }
   });
 
@@ -319,6 +373,8 @@ export const RescueProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   };
 
   const [allOperations, setAllOperations] = useState<SearchOperation[]>(() => {
+    // @ts-ignore
+    if (window.logToScreen) window.logToScreen('RescueProvider: allOperations init started');
     try {
       const saved = localStorage.getItem(STORAGE_KEY_OPERATIONS);
       if (saved) {
@@ -377,6 +433,8 @@ export const RescueProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   });
 
   const [currentOperationId, setCurrentOperationIdState] = useState<string>(() => {
+    // @ts-ignore
+    if (window.logToScreen) window.logToScreen('RescueProvider: currentOperationId init started');
     try {
       const saved = localStorage.getItem(STORAGE_KEY_ACTIVE_OP);
       if (saved === 'op-salzland-001' || saved === 'op-1788338712628' || saved === 'op-1788338712629') {
@@ -392,6 +450,8 @@ export const RescueProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   });
 
   const [currentUserId, setCurrentUserId] = useState<string>(() => {
+    // @ts-ignore
+    if (window.logToScreen) window.logToScreen('RescueProvider: currentUserId init started');
     try {
       const saved = localStorage.getItem(STORAGE_KEY_CURRENT_USER);
       return saved && saved.startsWith('user-') ? saved : '';
@@ -481,22 +541,42 @@ export const RescueProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     const userCallSign = currentUser.callSign;
     const userRole = currentUser.role;
 
-    // Guard (Option A): Admin / Einsatzleitung cannot leave if an operation is active/paused and they are the last active lead
-    if (userRole === 'admin' || userRole === 'einsatzleitung') {
-      const isOpRunning = currentOperation && (currentOperation.status === 'active' || currentOperation.status === 'paused');
-      const otherActiveAdmins = allUsers.filter(
-        (u) => (u.role === 'admin' || u.role === 'einsatzleitung') && u.isActive && u.id !== userId
-      ).length;
+    // Guard: During active or paused operations, BOTH the last Admin AND the last Einsatzleitung must remain logged in
+    const isOpRunning = currentOperation && (currentOperation.status === 'active' || currentOperation.status === 'paused');
+    if (isOpRunning) {
+      const isLeadAdmin = currentUser.role === 'admin' || currentUser.isAdmin;
+      const isLeadEL = currentUser.role === 'einsatzleitung' || currentUser.canLeadOperations;
 
-      if (isOpRunning && otherActiveAdmins === 0) {
-        setIsLogoutConfirmOpen(false);
-        playAlertSound('alert');
-        setActiveAlertNotification({
-          title: '⚠️ Abmeldung verweigert (Letzte Einsatzleitung)',
-          message: 'Während eines laufenden oder pausierten Einsatzes muss stets mindestens ein Administrator oder eine Einsatzleitung aktiv eingeloggt bleiben! Bitte beenden oder pausieren Sie zuerst den Einsatz, bevor Sie sich abmelden.',
-          timestamp: new Date().toLocaleTimeString(),
-        });
-        return;
+      if (isLeadAdmin) {
+        const otherActiveAdmins = allUsers.filter(
+          (u) => (u.role === 'admin' || u.isAdmin) && u.isActive && u.id !== userId
+        ).length;
+        if (otherActiveAdmins === 0) {
+          setIsLogoutConfirmOpen(false);
+          playAlertSound('alert');
+          setActiveAlertNotification({
+            title: '⚠️ Abmeldung verweigert (Letzter Administrator)',
+            message: 'Während eines laufenden oder pausierten Einsatzes muss stets mindestens ein Administrator aktiv eingeloggt bleiben! Bitte ernennen Sie eine andere Einsatzkraft zum Admin oder beenden Sie den Einsatz.',
+            timestamp: new Date().toLocaleTimeString(),
+          });
+          return;
+        }
+      }
+
+      if (isLeadEL) {
+        const otherActiveELs = allUsers.filter(
+          (u) => (u.role === 'einsatzleitung' || u.canLeadOperations) && u.isActive && u.id !== userId
+        ).length;
+        if (otherActiveELs === 0) {
+          setIsLogoutConfirmOpen(false);
+          playAlertSound('alert');
+          setActiveAlertNotification({
+            title: '⚠️ Abmeldung verweigert (Letzte Einsatzleitung)',
+            message: 'Während eines laufenden oder pausierten Einsatzes muss stets mindestens eine Einsatzleitung aktiv eingeloggt bleiben! Bitte übergeben Sie die Einsatzleitung oder beenden Sie den Einsatz.',
+            timestamp: new Date().toLocaleTimeString(),
+          });
+          return;
+        }
       }
     }
 
@@ -603,14 +683,22 @@ export const RescueProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   }, []);
 
   // Derived active objects
-  const currentUser = currentUserId ? allUsers.find((u) => u.id === currentUserId) || null : null;
+  const currentUser = useMemo(() => {
+    if (!currentUserId || allUsers.length === 0) return null;
+    return allUsers.find((u) => u.id === currentUserId) || null;
+  }, [currentUserId, allUsers]);
 
   // Single active device session ID to prevent double login / session conflicts
   const deviceSessionId = useMemo(() => {
     try {
+      const deviceId = localStorage.getItem('rescue_app_device_id_v1') || `dev-${Math.random().toString(36).substring(2, 9)}`;
+      try {
+        localStorage.setItem('rescue_app_device_id_v1', deviceId);
+      } catch {}
+
       let id = sessionStorage.getItem('rescue_device_session_id');
       if (!id) {
-        id = `session-${Math.random().toString(36).substring(2, 11)}-${Date.now()}`;
+        id = `${deviceId}:session-${Math.random().toString(36).substring(2, 9)}-${Date.now()}`;
         sessionStorage.setItem('rescue_device_session_id', id);
       }
       return id;
@@ -619,15 +707,41 @@ export const RescueProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     }
   }, []);
 
-  // Real-time check to prevent simultaneous double logins on the same account
+  // Continuous heartbeat for active session so stale sessions never block login
   useEffect(() => {
-    if (
-      currentUser &&
-      currentUser.isActive &&
-      currentUser.activeSessionId &&
-      currentUser.activeSessionId !== deviceSessionId
-    ) {
-      console.log('Simultaneous double login detected, logging out current device session.');
+    if (!currentUser || !currentUser.isActive) return;
+
+    const ping = () => {
+      const now = Date.now();
+      updateUser(currentUser.id, {
+        activeSessionId: deviceSessionId,
+        lastHeartbeat: now,
+        isActive: true,
+      });
+    };
+
+    // Immediate ping on mount/login
+    ping();
+    const interval = setInterval(ping, 20000);
+    return () => clearInterval(interval);
+  }, [currentUser?.id, currentUser?.isActive, deviceSessionId]);
+
+  // Real-time check to prevent simultaneous double logins on the same account from ANOTHER device
+  useEffect(() => {
+    if (!currentUser || !currentUser.isActive || !currentUser.activeSessionId) return;
+
+    const deviceId = localStorage.getItem('rescue_app_device_id_v1') || '';
+    const isSameDevice =
+      currentUser.activeSessionId === deviceSessionId ||
+      (deviceId !== '' && currentUser.activeSessionId.startsWith(deviceId));
+
+    const isLiveOnOtherDevice =
+      !isSameDevice &&
+      Boolean(currentUser.lastHeartbeat) &&
+      Date.now() - (currentUser.lastHeartbeat || 0) < 45000;
+
+    if (isLiveOnOtherDevice) {
+      console.log('Simultaneous double login detected from another device, logging out current device session.');
       
       // Perform local-only logout
       setCurrentUserId('');
@@ -640,11 +754,11 @@ export const RescueProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       playAlertSound('alert');
       setActiveAlertNotification({
         title: '⚠️ Sitzung beendet',
-        message: 'Ihre Verbindung wurde getrennt, da sich dieses Benutzerkonto auf einem anderen Gerät angemeldet hat.',
+        message: 'Ihre Verbindung wurde getrennt, da sich dieses Benutzerkonto auf einem anderen aktiven Gerät angemeldet hat.',
         timestamp: new Date().toLocaleTimeString(),
       });
     }
-  }, [currentUser?.activeSessionId, currentUser?.isActive, deviceSessionId]);
+  }, [currentUser?.activeSessionId, currentUser?.lastHeartbeat, currentUser?.isActive, deviceSessionId]);
 
   const currentOperation =
     (currentOperationId
@@ -1439,6 +1553,18 @@ export const RescueProvider: React.FC<{ children: React.ReactNode }> = ({ childr
                     return cloudU;
                   }
                   return localU;
+                }).map((u) => {
+                  if (
+                    u.id === 'user-maria' ||
+                    u.username?.toLowerCase() === 'maria' ||
+                    u.name?.toLowerCase() === 'maria' ||
+                    u.id === 'user-jens' ||
+                    u.username?.toLowerCase() === 'jens' ||
+                    u.name?.toLowerCase() === 'jens'
+                  ) {
+                    return { ...u, role: 'admin' as const };
+                  }
+                  return u;
                 });
 
                 // Update local tracking status state from synced user data to ensure Marcel's device also knows he is "ready"
@@ -1799,18 +1925,42 @@ function calculateDistanceMeters(lat1: number, lng1: number, lat2: number, lng2:
     const targetUser = allUsers.find((u) => u.id === userId);
     const wasActive = targetUser?.isActive ?? true;
 
-    // Check restriction: Admin cannot log out if operation is active and they are the last active admin (Option A)
-    if (!isActive && wasActive && (targetUser?.role === 'admin' || targetUser?.role === 'einsatzleitung')) {
+    // Check restriction: Last Admin and Last Einsatzleitung cannot be deactivated if operation is active/paused
+    if (!isActive && wasActive && targetUser) {
       const isOpRunning = currentOperation && (currentOperation.status === 'active' || currentOperation.status === 'paused');
-      const activeAdminsCount = allUsers.filter((u) => (u.role === 'admin' || u.role === 'einsatzleitung') && u.isActive && u.id !== userId).length;
-      if (isOpRunning && activeAdminsCount === 0) {
-        playAlertSound('alert');
-        setActiveAlertNotification({
-          title: '⚠️ Letzte Einsatzleitung!',
-          message: 'Es muss während eines laufenden Einsatzes stets mindestens ein Administrator oder eine Einsatzleitung eingeloggt bleiben! Bitte pausieren oder beenden Sie zuerst den Einsatz, bevor sich der letzte Admin abmeldet.',
-          timestamp: new Date().toLocaleTimeString(),
-        });
-        return;
+      if (isOpRunning) {
+        const isTargetAdmin = targetUser.role === 'admin' || targetUser.isAdmin;
+        const isTargetEL = targetUser.role === 'einsatzleitung' || targetUser.canLeadOperations;
+
+        if (isTargetAdmin) {
+          const activeAdminsCount = allUsers.filter(
+            (u) => (u.role === 'admin' || u.isAdmin) && u.isActive && u.id !== userId
+          ).length;
+          if (activeAdminsCount === 0) {
+            playAlertSound('alert');
+            setActiveAlertNotification({
+              title: '⚠️ Letzter Administrator verbleibt aktiv!',
+              message: 'Während eines laufenden oder pausierten Einsatzes muss stets mindestens ein Administrator eingeloggt bleiben! Bitte ernennen Sie eine andere Einsatzkraft zum Admin oder beenden Sie den Einsatz.',
+              timestamp: new Date().toLocaleTimeString(),
+            });
+            return;
+          }
+        }
+
+        if (isTargetEL) {
+          const activeELsCount = allUsers.filter(
+            (u) => (u.role === 'einsatzleitung' || u.canLeadOperations) && u.isActive && u.id !== userId
+          ).length;
+          if (activeELsCount === 0) {
+            playAlertSound('alert');
+            setActiveAlertNotification({
+              title: '⚠️ Letzte Einsatzleitung verbleibt aktiv!',
+              message: 'Während eines laufenden oder pausierten Einsatzes muss stets mindestens eine Einsatzleitung eingeloggt bleiben! Bitte übergeben Sie die Einsatzleitung oder beenden Sie den Einsatz.',
+              timestamp: new Date().toLocaleTimeString(),
+            });
+            return;
+          }
+        }
       }
     }
 
@@ -2129,12 +2279,31 @@ function calculateDistanceMeters(lat1: number, lng1: number, lat2: number, lng2:
   };
 
   const updateUser = (userId: string, updates: Partial<User>) => {
+    // SECURITY GUARD: Maria is First Admin (App-Owner) and untouchable by other admins
+    const targetUser = allUsers.find((u) => u.id === userId);
+    const isTargetOwner = isFirstAdmin(targetUser) || userId === 'user-maria';
+
+    // If target is First Admin, but currently logged in user is NOT Maria, forbid modification
+    if (isTargetOwner && currentUser && !isFirstAdmin(currentUser)) {
+      console.warn('Blocked unauthorized attempt to update First Admin account:', userId);
+      return;
+    }
+
     setAllUsers((prev) => {
       const next = prev.map((u) => {
         if (u.id === userId) {
+          const isOwnerUser = isFirstAdmin(u) || userId === 'user-maria';
           const updated: User = {
             ...u,
             ...updates,
+            // Enforce that First Admin & App-Owner flags are permanent and unrevokable
+            ...(isOwnerUser ? {
+              role: 'admin' as const,
+              isAdmin: true,
+              canLeadOperations: true,
+              isFirstAdmin: true,
+              isOwner: true,
+            } : {}),
             updatedAt: new Date().toISOString(),
           };
           try {
@@ -2331,6 +2500,14 @@ function calculateDistanceMeters(lat1: number, lng1: number, lat2: number, lng2:
   };
 
   const deleteUser = (userId: string) => {
+    // SECURITY GUARD: First Admin (Maria) is untouchable and cannot be deleted
+    const targetUser = allUsers.find((u) => u.id === userId);
+    if (isFirstAdmin(targetUser) || userId === 'user-maria') {
+      console.warn('Blocked attempt to delete First Admin / Owner account:', userId);
+      alert('Der First-Admin Account von Maria (App-Owner) ist unantastbar und kann nicht gelöscht werden.');
+      return;
+    }
+
     setAllUsers((prev) => {
       const next = prev.filter((u) => u.id !== userId);
       try {
@@ -2393,6 +2570,13 @@ function calculateDistanceMeters(lat1: number, lng1: number, lat2: number, lng2:
 
   const removeUserFromOperation = (userId: string) => {
     const targetUser = allUsers.find((u) => u.id === userId);
+    // SECURITY GUARD: Other admins cannot kick First Admin / Owner (Maria) out of the operation
+    if ((isFirstAdmin(targetUser) || userId === 'user-maria') && !isFirstAdmin(currentUser)) {
+      console.warn('Blocked attempt by non-owner admin to remove First Admin from operation:', userId);
+      alert('Der First-Admin und App-Owner (Maria) kann nicht von anderen Administratoren aus dem Einsatz entfernt werden.');
+      return;
+    }
+
     const targetName = targetUser ? `${targetUser.name} (${targetUser.callSign})` : 'Einsatzkraft';
 
     // 1. Mark user as inactive
@@ -2870,7 +3054,7 @@ function calculateDistanceMeters(lat1: number, lng1: number, lat2: number, lng2:
           completedAt: now,
           updatedAt: now,
           outcome: outcome || (op.type === 'exercise' ? 'exercise_completed' : 'person_alive'),
-          closingNotes: notes,
+          closingNotes: notes ? (op.closingNotes ? `${op.closingNotes}\n\n[Ergänzung ${new Date().toLocaleDateString()}]: ${notes}` : notes) : op.closingNotes,
           notes: notes ? `${op.notes ? `${op.notes}\n` : ''}${notes}` : op.notes,
           archivedTracks: updatedArchived,
           archivedChatMessages: opChat.length > 0 ? opChat : op.archivedChatMessages,
@@ -3844,6 +4028,20 @@ function calculateDistanceMeters(lat1: number, lng1: number, lat2: number, lng2:
 
   const saveTrackingTestResult = useCallback((save: boolean) => {
     // Requirements say: automatisches logout des users erfolgt als letztes
+    const testSession = activeTrackingTestRef.current;
+    if (testSession && testSession.userId) {
+      setUserLocations((prev) => {
+        const target = prev[testSession.userId];
+        if (!target) return prev;
+        const updatedTarget = { ...target, trackHistory: [target.currentPosition] };
+        syncLocationToCloud(testSession.userId, updatedTarget);
+        return {
+          ...prev,
+          [testSession.userId]: updatedTarget,
+        };
+      });
+    }
+
     setActiveTrackingTest(null);
     confirmLogout();
   }, [confirmLogout]);

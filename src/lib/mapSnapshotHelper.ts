@@ -9,45 +9,22 @@ export async function captureTacticalMapScreenshot(
   fallbackOperation?: SearchOperation | null,
   userLocations?: Record<string, UserLocationState>
 ): Promise<string | null> {
-  // 1. Try to capture real rendered Leaflet DOM element
-  const mapEl =
-    document.getElementById('tactical-leaflet-map') ||
-    document.querySelector('.leaflet-container') ||
-    document.getElementById('tactical-map-container');
-
-  if (mapEl) {
-    try {
-      const canvas = await html2canvas(mapEl as HTMLElement, {
-        useCORS: true,
-        allowTaint: true,
-        logging: false,
-        backgroundColor: '#0f172a',
-        ignoreElements: (el) =>
-          el.classList.contains('leaflet-control-zoom') ||
-          el.classList.contains('leaflet-control-attribution') ||
-          el.classList.contains('no-print-snapshot'),
-      });
-      const dataUrl = canvas.toDataURL('image/jpeg', 0.85);
-      if (dataUrl && dataUrl.length > 500) {
-        return dataUrl;
-      }
-    } catch (err) {
-      console.warn('[mapSnapshotHelper] DOM screenshot failed, falling back to tactical canvas renderer:', err);
-    }
-  }
-
-  // 2. If already has existing mapSnapshotUrl, return that
-  if (fallbackOperation?.mapSnapshotUrl && fallbackOperation.mapSnapshotUrl.startsWith('data:image')) {
-    return fallbackOperation.mapSnapshotUrl;
-  }
-
-  // 3. Fallback: Generate a crisp 2D Tactical Lagekarten-Snapshot on an off-screen Canvas
+  // Always use the reliable 2D Tactical Lagekarten-Snapshot instead of html2canvas
+  // html2canvas is extremely brittle with Leaflet's 3D transforms and cross-origin tiles,
+  // often resulting in blank or broken images. The fallback renderer guarantees a crisp,
+  // professional tactical schema map.
+  
   if (fallbackOperation) {
     try {
       return generateTacticalCanvasFallback(fallbackOperation, userLocations);
     } catch (fallbackErr) {
       console.warn('[mapSnapshotHelper] Tactical canvas fallback failed:', fallbackErr);
     }
+  }
+
+  // If already has existing mapSnapshotUrl, return that
+  if (fallbackOperation?.mapSnapshotUrl && fallbackOperation.mapSnapshotUrl.startsWith('data:image')) {
+    return fallbackOperation.mapSnapshotUrl;
   }
 
   return null;

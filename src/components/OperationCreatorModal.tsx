@@ -62,7 +62,7 @@ export const OperationCreatorModal: React.FC<OperationCreatorModalProps> = ({
   const [ezAdminIds, setEzAdminIds] = useState<string[]>([]);
 
   const targetOp = operationToEdit || (mode === 'edit' ? currentOperation : null);
-  const isAdmin = currentUser?.role === 'admin';
+  const isAdmin = currentUser?.role === 'admin' || currentUser?.role === 'einsatzleitung';
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
 
   const [type, setType] = useState<OperationType>('live_search');
@@ -191,10 +191,11 @@ export const OperationCreatorModal: React.FC<OperationCreatorModalProps> = ({
         setEzAdminIds(
           Array.isArray(targetOp.ezAdminIds) && targetOp.ezAdminIds.length > 0
             ? targetOp.ezAdminIds
-            : allUsers.filter((u) => u.role === 'admin').map((u) => u.id)
+            : allUsers.filter((u) => u.role === 'admin' || u.role === 'einsatzleitung').map((u) => u.id)
         );
       } else if (mode === 'create') {
-        setEzAdminIds(allUsers.filter((u) => u.role === 'admin').map((u) => u.id));
+        const defaultAdmins = allUsers.filter((u) => u.role === 'admin' || u.role === 'einsatzleitung').map((u) => u.id);
+        setEzAdminIds(defaultAdmins.length > 0 ? defaultAdmins : (currentUser?.id ? [currentUser.id] : []));
         setType('live_search');
         setTitle('Vermisstensuche Salzlandkreis');
         setCommander(currentUser?.name ? `${currentUser.name} (${currentUser.callSign || 'Einsatzleitung'})` : 'Maria (Einsatzleitung)');
@@ -237,8 +238,8 @@ export const OperationCreatorModal: React.FC<OperationCreatorModalProps> = ({
 
   if (!isOpen) return null;
 
-  // Explicit admin-only guard clause
-  if (currentUser?.role !== 'admin') {
+  // Explicit admin/EL guard clause
+  if (currentUser?.role !== 'admin' && currentUser?.role !== 'einsatzleitung') {
     return (
       <div className="fixed inset-0 z-[5000] flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-md font-sans">
         <div className="bg-[#1E293B] border border-red-500/50 rounded-2xl p-6 max-w-md text-center space-y-4 shadow-2xl text-slate-100">
@@ -247,7 +248,7 @@ export const OperationCreatorModal: React.FC<OperationCreatorModalProps> = ({
           </div>
           <h3 className="text-base font-bold text-white uppercase tracking-wide">Zugriff verweigert (Admin-Bereich)</h3>
           <p className="text-xs text-slate-300 leading-relaxed">
-            Nur Einsatzleiter und Administratoren (Rolle: <span className="font-mono text-red-400 font-bold">admin</span>) sind autorisiert, neue Sucheinsätze anzulegen oder bestehende Einsatzdaten zu bearbeiten.
+            Nur Einsatzleiter und Administratoren (Rolle: <span className="font-mono text-red-400 font-bold">admin</span> / <span className="font-mono text-blue-400 font-bold">einsatzleitung</span>) sind autorisiert, neue Sucheinsätze anzulegen oder bestehende Einsatzdaten zu bearbeiten.
           </p>
           <button
             onClick={onClose}
@@ -391,9 +392,17 @@ export const OperationCreatorModal: React.FC<OperationCreatorModalProps> = ({
       policeCaseId: policeCaseId.trim(),
     };
 
-    if (ezAdminIds.length === 0) {
-      setFormError('Mindestens ein Administrator muss dem EZ zugeteilt werden (Muss-Admin).');
-      return;
+    let finalEzAdminIds = [...ezAdminIds];
+    if (finalEzAdminIds.length === 0) {
+      const availableAdmins = allUsers.filter((u) => u.role === 'admin' || u.role === 'einsatzleitung').map((u) => u.id);
+      if (availableAdmins.length > 0) {
+        finalEzAdminIds = availableAdmins;
+      } else if (currentUser?.id) {
+        finalEzAdminIds = [currentUser.id];
+      } else {
+        setFormError('Mindestens ein Administrator muss dem EZ zugeteilt werden.');
+        return;
+      }
     }
 
     const finalVolunteersCount = typeof externalVolunteersCount === 'number' ? externalVolunteersCount : 0;
@@ -405,7 +414,7 @@ export const OperationCreatorModal: React.FC<OperationCreatorModalProps> = ({
       externalVolunteersNotes: externalVolunteersNotes.trim(),
       selectedEquipment,
       customEquipmentNotes: customEquipmentNotes.trim(),
-      ezAdminIds,
+      ezAdminIds: finalEzAdminIds,
     };
 
     if (mode === 'edit' && targetOp) {
@@ -1224,7 +1233,7 @@ export const OperationCreatorModal: React.FC<OperationCreatorModalProps> = ({
                 🛡️ EZ-Administratoren (Mindestens 1 Administrator muss zugeteilt werden):
               </label>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                {allUsers.filter((u) => u.role === 'admin').map((adminUser) => {
+                {allUsers.filter((u) => u.role === 'admin' || u.role === 'einsatzleitung').map((adminUser) => {
                   const isAssigned = ezAdminIds.includes(adminUser.id);
                   return (
                     <button

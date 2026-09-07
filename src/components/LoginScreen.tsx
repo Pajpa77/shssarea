@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { useRescue } from '../context/RescueContext';
-import { User, EquipmentType } from '../types';
+import { User, EquipmentType, UserRole } from '../types';
 import {
   Shield,
   User as UserIcon,
@@ -170,18 +170,35 @@ export const LoginScreen: React.FC = () => {
 
     // Default password check for users without custom password
     if (!foundUser.password || foundUser.password.trim() === '') {
-      const expectedDefault = foundUser.role === 'admin' ? 'admin123' : 'sucher123';
+      const isLeadership = foundUser.role === 'admin' || foundUser.role === 'einsatzleitung' || foundUser.isAdmin;
+      const expectedDefault = isLeadership ? 'admin123' : 'sucher123';
       const pass = password.trim();
-      if (pass !== expectedDefault && pass !== 'admin123' && pass !== 'sucher123' && pass.length < 3) {
+      if (pass !== expectedDefault && pass !== 'admin123' && pass !== 'sucher123' && pass !== 'el123' && pass.length < 3) {
         handleFailedAttempt();
         return;
       }
     }
 
-    // Check for double login
-    const deviceSessionId = sessionStorage.getItem('rescue_device_session_id');
-    if (foundUser.isActive && foundUser.activeSessionId && foundUser.activeSessionId !== deviceSessionId) {
-      setErrorMsg('Dieses Benutzerkonto ist bereits auf einem anderen Gerät aktiv.');
+    // Check for real double login from another active device
+    // A session is ONLY active if it has an active session ID different from ours,
+    // does not belong to the same local device ID, and has a fresh heartbeat (< 45 seconds).
+    const deviceSessionId = sessionStorage.getItem('rescue_device_session_id') || '';
+    const deviceId = localStorage.getItem('rescue_app_device_id_v1') || '';
+    const now = Date.now();
+    const isSameDevice =
+      Boolean(foundUser.activeSessionId) &&
+      (foundUser.activeSessionId === deviceSessionId ||
+        (deviceId !== '' && foundUser.activeSessionId.startsWith(deviceId)));
+
+    const isOtherSessionAlive =
+      !isSameDevice &&
+      foundUser.isActive &&
+      Boolean(foundUser.activeSessionId) &&
+      Boolean(foundUser.lastHeartbeat) &&
+      now - (foundUser.lastHeartbeat || 0) < 45000;
+
+    if (isOtherSessionAlive) {
+      setErrorMsg('Dieses Benutzerkonto ist derzeit auf einem anderen aktiven Gerät angemeldet.');
       setForceLogoutTarget(foundUser);
       return;
     }
@@ -219,7 +236,8 @@ export const LoginScreen: React.FC = () => {
           user.username.toLowerCase().includes('admin') ||
           user.username.toLowerCase().includes('leitung') ||
           user.name.toLowerCase().includes('admin');
-        updateUser(user.id, { role: isLead ? 'admin' : 'responder' });
+        const defaultLeadRole: UserRole = user.username.toLowerCase().includes('admin') ? 'admin' : 'einsatzleitung';
+        updateUser(user.id, { role: isLead ? defaultLeadRole : 'responder' });
       }
     }
 

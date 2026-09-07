@@ -1,25 +1,28 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, Suspense, lazy } from 'react';
 import { RescueProvider, useRescue } from './context/RescueContext';
 import { LoginScreen } from './components/LoginScreen';
 import { Navbar } from './components/Navbar';
 import { TacticalMap } from './components/TacticalMap';
-import { SectorOverview } from './components/SectorOverview';
-import { ChatPanel } from './components/ChatPanel';
-import { ResponderList } from './components/ResponderList';
-import { MissionLog } from './components/MissionLog';
-import { OperationsArchive } from './components/OperationsArchive';
 
-import { FindingModal } from './components/FindingModal';
-import { FindingDetailModal } from './components/FindingDetailModal';
-import { SectorEditorModal } from './components/SectorEditorModal';
-import { UserManagementModal } from './components/UserManagement';
-import { OperationCreatorModal } from './components/OperationCreatorModal';
-import { OperationDetailModal } from './components/OperationDetailModal';
-import { OperationEndModal } from './components/OperationEndModal';
-import { OperationPauseModal } from './components/OperationPauseModal';
-import { ProfileModal } from './components/ProfileModal';
-import { ShareAppModal } from './components/ShareAppModal';
-import { SearchTeamsModal } from './components/SearchTeamsModal';
+// Lazy load heavy components
+const OperationsArchive = lazy(() => import('./components/OperationsArchive').then(m => ({ default: m.OperationsArchive })));
+const SectorOverview = lazy(() => import('./components/SectorOverview').then(m => ({ default: m.SectorOverview })));
+const ChatPanel = lazy(() => import('./components/ChatPanel').then(m => ({ default: m.ChatPanel })));
+const ResponderList = lazy(() => import('./components/ResponderList').then(m => ({ default: m.ResponderList })));
+const MissionLog = lazy(() => import('./components/MissionLog').then(m => ({ default: m.MissionLog })));
+
+// Lazy load modals
+const FindingModal = lazy(() => import('./components/FindingModal').then(m => ({ default: m.FindingModal })));
+const FindingDetailModal = lazy(() => import('./components/FindingDetailModal').then(m => ({ default: m.FindingDetailModal })));
+const SectorEditorModal = lazy(() => import('./components/SectorEditorModal').then(m => ({ default: m.SectorEditorModal })));
+const UserManagementModal = lazy(() => import('./components/UserManagement').then(m => ({ default: m.UserManagementModal })));
+const OperationCreatorModal = lazy(() => import('./components/OperationCreatorModal').then(m => ({ default: m.OperationCreatorModal })));
+const OperationDetailModal = lazy(() => import('./components/OperationDetailModal').then(m => ({ default: m.OperationDetailModal })));
+const OperationEndModal = lazy(() => import('./components/OperationEndModal').then(m => ({ default: m.OperationEndModal })));
+const OperationPauseModal = lazy(() => import('./components/OperationPauseModal').then(m => ({ default: m.OperationPauseModal })));
+const ProfileModal = lazy(() => import('./components/ProfileModal').then(m => ({ default: m.ProfileModal })));
+const ShareAppModal = lazy(() => import('./components/ShareAppModal').then(m => ({ default: m.ShareAppModal })));
+const SearchTeamsModal = lazy(() => import('./components/SearchTeamsModal').then(m => ({ default: m.SearchTeamsModal })));
 import { TrackingTestOverlay } from './components/TrackingTestOverlay';
 import { QuotaNotificationBanner } from './components/QuotaNotificationBanner';
 
@@ -299,35 +302,34 @@ const MainApp: React.FC = () => {
         </div>
       )}
 
-      {/* UI Zoom Controls - Floating for Mobile Precision */}
-      <div className="fixed top-24 left-4 z-[2000] flex flex-col gap-2 pointer-events-none">
-        <div className="flex flex-col gap-1 p-1.5 bg-slate-900/95 border-2 border-slate-700 rounded-2xl shadow-2xl backdrop-blur-lg pointer-events-auto ring-1 ring-white/10">
-          <button
-            onClick={() => setUiScale(uiScale + 0.1)}
-            className="w-11 h-11 flex items-center justify-center bg-slate-800 hover:bg-slate-700 active:bg-blue-600 text-blue-400 active:text-white rounded-xl transition-all active:scale-90 cursor-pointer shadow-inner"
-            title="UI Vergrößern"
-          >
-            <Plus className="w-6 h-6" />
-          </button>
-          <div className="flex flex-col items-center py-1.5 select-none">
-            <span className="text-[10px] font-black text-slate-500 font-mono uppercase tracking-tighter">Scale</span>
-            <span className="text-[11px] font-black text-blue-400 font-mono leading-none">{Math.round(uiScale * 100)}%</span>
-          </div>
-          <button
-            onClick={() => setUiScale(uiScale - 0.1)}
-            className="w-11 h-11 flex items-center justify-center bg-slate-800 hover:bg-slate-700 active:bg-blue-600 text-blue-400 active:text-white rounded-xl transition-all active:scale-90 cursor-pointer shadow-inner"
-            title="UI Verkleinern"
-          >
-            <Minus className="w-6 h-6" />
-          </button>
+      {/* UI Zoom Controls - Slim Sleek Floating Control */}
+      <div className="fixed top-16 left-3 z-[900] pointer-events-auto flex items-center gap-1.5 bg-slate-900/90 border border-slate-700/80 rounded-full px-2.5 py-1 shadow-lg backdrop-blur-md text-xs font-mono select-none ring-1 ring-white/10">
+        <button
+          onClick={() => setUiScale(Math.max(0.7, Number((uiScale - 0.05).toFixed(2))))}
+          className="w-6 h-6 flex items-center justify-center rounded-full bg-slate-800 hover:bg-slate-700 active:bg-blue-600 text-blue-400 active:text-white transition active:scale-90 cursor-pointer"
+          title="UI Verkleinern"
+        >
+          <Minus className="w-3.5 h-3.5" />
+        </button>
+        <span className="text-[10px] font-bold text-blue-400 px-0.5 min-w-[34px] text-center">
+          {Math.round(uiScale * 100)}%
+        </span>
+        <button
+          onClick={() => setUiScale(Math.min(1.4, Number((uiScale + 0.05).toFixed(2))))}
+          className="w-6 h-6 flex items-center justify-center rounded-full bg-slate-800 hover:bg-slate-700 active:bg-blue-600 text-blue-400 active:text-white transition active:scale-90 cursor-pointer"
+          title="UI Vergrößern"
+        >
+          <Plus className="w-3.5 h-3.5" />
+        </button>
+        {Math.abs(uiScale - 1.0) > 0.01 && (
           <button
             onClick={() => setUiScale(1.0)}
-            className="mt-1.5 w-11 h-9 flex items-center justify-center bg-slate-950 hover:bg-slate-800 text-slate-500 hover:text-white rounded-lg transition-all active:scale-95 cursor-pointer text-[9px] font-black uppercase border border-slate-800"
+            className="text-[9px] font-bold text-slate-400 hover:text-white px-1 hover:underline cursor-pointer transition border-l border-slate-700/80 ml-0.5 pl-1.5"
             title="UI Reset"
           >
             Reset
           </button>
-        </div>
+        )}
       </div>
 
       {/* Top Tactical Navigation */}
@@ -370,46 +372,42 @@ const MainApp: React.FC = () => {
 
       {/* Main Tab Content */}
       <main className="flex-1 flex flex-col relative overflow-hidden bg-[#0F172A]">
-        {activeTab === 'map' && (
-          <div className="flex-1 relative flex flex-col h-full w-full">
-            <TacticalMap
-              onOpenFindingDetail={(f) => setSelectedFinding(f)}
-              onOpenSectorEditor={(s) => {
-                setSectorToEdit(s);
-                setIsSectorEditorOpen(true);
-              }}
-              onStartFreehandDrawing={() => {
-                setSectorToEdit(null);
-                setPendingPolygon(undefined);
-                setIsDrawingSector(true);
-              }}
-              isDrawingSector={isDrawingSector}
-              onFinishDrawing={(coords) => {
-                setPendingPolygon(coords);
-                setIsDrawingSector(false);
-                setIsSectorEditorOpen(true);
-              }}
-              onCancelDrawing={() => {
-                setIsDrawingSector(false);
-              }}
-              onOpenDirectChat={(user) => {
-                setDirectChatTarget(user);
-                setActiveTab('chat');
-              }}
-            />
+        <Suspense fallback={
+          <div className="flex-1 flex flex-col items-center justify-center bg-[#0F172A] text-blue-400 font-mono animate-pulse">
+            <div className="w-12 h-12 border-4 border-blue-500 border-t-transparent rounded-full animate-spin mb-4"></div>
+            <div className="text-xs uppercase tracking-widest">Initialisierung...</div>
+          </div>
+        }>
+          {activeTab === 'map' && (
+            <div className="flex-1 relative flex flex-col h-full w-full">
+              <TacticalMap
+                onOpenFindingDetail={(f) => setSelectedFinding(f)}
+                onOpenSectorEditor={(s) => {
+                  setSectorToEdit(s);
+                  setIsSectorEditorOpen(true);
+                }}
+                onStartFreehandDrawing={() => {
+                  setSectorToEdit(null);
+                  setPendingPolygon(undefined);
+                  setIsDrawingSector(true);
+                }}
+                isDrawingSector={isDrawingSector}
+                onFinishDrawing={(coords) => {
+                  setPendingPolygon(coords);
+                  setIsDrawingSector(false);
+                  setIsSectorEditorOpen(true);
+                }}
+                onCancelDrawing={() => {
+                  setIsDrawingSector(false);
+                }}
+                onOpenDirectChat={(user) => {
+                  setDirectChatTarget(user);
+                  setActiveTab('chat');
+                }}
+              />
 
             {/* Geometric Floating Action & Tab Dock */}
             <div className="absolute bottom-4 left-1/2 -translate-x-1/2 flex items-center gap-2 sm:gap-3 px-3 sm:px-5 py-2 sm:py-2.5 bg-slate-900/95 border border-slate-700 rounded-2xl shadow-2xl backdrop-blur-md z-[850] max-w-[95vw]">
-              <button
-                onClick={() => setActiveTab('sectors')}
-                className="flex flex-col items-center gap-1 w-14 sm:w-20 group cursor-pointer"
-              >
-                <div className="w-8 h-8 sm:w-10 sm:h-10 rounded-xl bg-slate-800 border border-slate-600 flex items-center justify-center group-hover:bg-slate-700 transition">
-                  <Layers className="w-4 h-4 sm:w-5 sm:h-5 text-blue-400" />
-                </div>
-                <span className="text-[9px] sm:text-[10px] font-bold uppercase tracking-tighter text-slate-300">Sektoren</span>
-              </button>
-
               <button
                 onClick={() => setActiveTab('responders')}
                 className="flex flex-col items-center gap-1 w-14 sm:w-20 group cursor-pointer"
@@ -424,13 +422,18 @@ const MainApp: React.FC = () => {
 
               {/* Central Prominent FUND! Action */}
               <button
-                onClick={() => setIsFindingModalOpen(true)}
-                className="flex flex-col items-center gap-1 w-16 sm:w-20 group cursor-pointer"
+                onClick={() => {
+                  if (currentOperation && (currentOperation.status === 'active' || currentOperation.status === 'paused')) {
+                    setIsFindingModalOpen(true);
+                  }
+                }}
+                disabled={!currentOperation || (currentOperation.status !== 'active' && currentOperation.status !== 'paused')}
+                className={`flex flex-col items-center gap-1 w-16 sm:w-20 group transition ${(!currentOperation || (currentOperation.status !== 'active' && currentOperation.status !== 'paused')) ? 'opacity-50 cursor-not-allowed grayscale' : 'cursor-pointer'}`}
               >
-                <div className="w-11 h-11 sm:w-14 sm:h-14 -mt-2.5 sm:-mt-3 rounded-full bg-red-600 border-4 border-slate-900 flex items-center justify-center shadow-[0_0_20px_rgba(220,38,38,0.5)] group-hover:bg-red-500 transition active:scale-95 animate-pulse">
-                  <AlertTriangle className="w-5 h-5 sm:w-6 sm:h-6 text-white" />
+                <div className={`w-11 h-11 sm:w-14 sm:h-14 -mt-2.5 sm:-mt-3 rounded-full border-4 border-slate-900 flex items-center justify-center transition active:scale-95 ${(!currentOperation || (currentOperation.status !== 'active' && currentOperation.status !== 'paused')) ? 'bg-slate-700' : 'bg-red-600 shadow-[0_0_20px_rgba(220,38,38,0.5)] group-hover:bg-red-500 animate-pulse'}`}>
+                  <AlertTriangle className={`w-5 h-5 sm:w-6 sm:h-6 ${(!currentOperation || (currentOperation.status !== 'active' && currentOperation.status !== 'paused')) ? 'text-slate-400' : 'text-white'}`} />
                 </div>
-                <span className="text-[9px] sm:text-[10px] font-black uppercase tracking-widest text-red-500">FUND!</span>
+                <span className={`text-[9px] sm:text-[10px] font-black uppercase tracking-widest ${(!currentOperation || (currentOperation.status !== 'active' && currentOperation.status !== 'paused')) ? 'text-slate-500' : 'text-red-500'}`}>FUND!</span>
               </button>
 
               <div className="h-8 sm:h-10 w-px bg-slate-700"></div>
@@ -448,16 +451,6 @@ const MainApp: React.FC = () => {
                     {unreadChatCount}
                   </span>
                 )}
-              </button>
-
-              <button
-                onClick={() => setActiveTab('archive')}
-                className="flex flex-col items-center gap-1 w-14 sm:w-20 group cursor-pointer"
-              >
-                <div className="w-8 h-8 sm:w-10 sm:h-10 rounded-xl bg-slate-800 border border-slate-600 flex items-center justify-center group-hover:bg-slate-700 transition">
-                  <Shield className="w-4 h-4 sm:w-5 sm:h-5 text-slate-400" />
-                </div>
-                <span className="text-[9px] sm:text-[10px] font-bold uppercase tracking-tighter text-slate-300">Archiv</span>
               </button>
             </div>
           </div>
@@ -512,6 +505,7 @@ const MainApp: React.FC = () => {
             <OperationsArchive onNavigateToMap={() => setActiveTab('map')} />
           </div>
         )}
+        </Suspense>
       </main>
 
       {/* Mobile Sticky Bottom Navigation Bar */}
@@ -583,10 +577,11 @@ const MainApp: React.FC = () => {
       </nav>
 
       {/* Modals */}
-      <FindingModal
-        isOpen={isFindingModalOpen}
-        onClose={() => setIsFindingModalOpen(false)}
-      />
+      <Suspense fallback={null}>
+        <FindingModal
+          isOpen={isFindingModalOpen}
+          onClose={() => setIsFindingModalOpen(false)}
+        />
 
       <FindingDetailModal
         finding={selectedFinding}
@@ -676,6 +671,7 @@ const MainApp: React.FC = () => {
         isOpen={isSearchTeamsModalOpen}
         onClose={() => setIsSearchTeamsModalOpen(false)}
       />
+      </Suspense>
     </div>
   );
 };

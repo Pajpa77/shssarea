@@ -17,6 +17,8 @@ export interface User {
   password?: string;
   name: string;
   role: UserRole;
+  isAdmin?: boolean; // Erlaubt die Kombination: Einsatzleitung mit Admin-Rechten
+  canLeadOperations?: boolean; // Erlaubt operativer Einsatzleiter zu sein
   callSign: string; // Funkrufname (e.g. "Kater 1/4", "Sucher Alpha")
   licensePlate: string; // KFZ-Kennzeichen (e.g. "M-RD 204")
   photoUrl: string;
@@ -32,11 +34,50 @@ export interface User {
   batteryCharging?: boolean;
   lastSeen?: string;
   activeSessionId?: string;
+  lastHeartbeat?: number; // Timestamp des letzten Heartbeats in ms
   arrivalStatus?: 'in_transit' | 'ez_reached' | 'ready';
   currentLocation?: GpsPoint;
   dogInfo?: { name?: string; breed?: string; qualification?: string };
+  isFirstAdmin?: boolean; // First Admin & App-Owner (unantastbar)
+  isOwner?: boolean; // App-Owner (unantastbar vor anderen Admins)
   updatedAt?: string;
 }
+
+export const isFirstAdmin = (user: User | null | undefined): boolean => {
+  if (!user || !user.id) return false;
+  
+  // Strictly enforce the hardcoded First-Admin Maria by ID
+  if (user.id === 'user-maria') return true;
+  
+  // Also check if the flag is explicitly set
+  if (user.isFirstAdmin === true || user.isOwner === true) return true;
+  
+  // Match by username/name ONLY if the ID also starts with 'user-maria' 
+  // (to prevent accidental takeovers by new users named Maria)
+  const uname = (user.username || '').toLowerCase();
+  const name = (user.name || '').toLowerCase();
+  
+  if (uname === 'maria' || name === 'maria') {
+    // If it's a legacy account or the specific seeded one, allow it
+    if (user.id === 'user-maria' || user.id.startsWith('user-maria-')) return true;
+  }
+  
+  return false;
+};
+
+export const isOwner = isFirstAdmin;
+
+export const isUserAdmin = (user: User | null | undefined): boolean => {
+  return Boolean(user && (user.role === 'admin' || user.isAdmin === true || isFirstAdmin(user)));
+};
+
+export const isUserEL = (user: User | null | undefined): boolean => {
+  return Boolean(user && (user.role === 'einsatzleitung' || user.role === 'admin' || user.canLeadOperations === true));
+};
+
+export const isUserAdminOrEL = (user: User | null | undefined): boolean => {
+  return isUserAdmin(user) || isUserEL(user);
+};
 
 export interface GpsPoint {
   lat: number;

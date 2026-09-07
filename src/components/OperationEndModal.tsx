@@ -1,5 +1,4 @@
 import React, { useState } from 'react';
-import html2canvas from 'html2canvas';
 import { useRescue } from '../context/RescueContext';
 import {
   CheckCircle2,
@@ -89,20 +88,10 @@ export const OperationEndModal: React.FC<OperationEndModalProps> = ({
     let snapshotDataUrl: string | undefined = undefined;
 
     if (includeMapSnapshot) {
-      const mapEl = document.getElementById('tactical-leaflet-map');
-      if (mapEl) {
-        try {
-          const canvas = await html2canvas(mapEl, {
-            useCORS: true,
-            allowTaint: true,
-            logging: false,
-            backgroundColor: '#0f172a',
-          });
-          snapshotDataUrl = canvas.toDataURL('image/jpeg', 0.85);
-        } catch (err) {
-          console.warn('Lagekarten-Snapshot fehlgeschlagen:', err);
-        }
-      }
+      // The actual screenshot generation is now handled cleanly by the
+      // captureTacticalMapScreenshot utility inside endOperation to avoid Leaflet DOM issues.
+      // We just pass undefined to let the context handle it.
+      snapshotDataUrl = undefined;
     }
 
     endOperation(currentOperation.id, closingNotes.trim() || undefined, outcome, snapshotDataUrl);
